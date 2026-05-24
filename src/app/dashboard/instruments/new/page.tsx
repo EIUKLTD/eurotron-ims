@@ -1,122 +1,166 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
-import Link from 'next/link'
-import { format, differenceInDays, parseISO } from 'date-fns'
+import { useRouter } from 'next/navigation'
 
-function calBadge(date:string|null) {
-  if (!date) return <span className="badge-gray">No date</span>
-  const d = differenceInDays(parseISO(date), new Date())
-  if (d < 0)   return <span className="badge-fail">Overdue</span>
-  if (d <= 30) return <span className="badge-warn">Due in {d}d</span>
-  if (d <= 90) return <span className="badge-info">Due in {d}d</span>
-  return <span className="badge-pass">Current</span>
-}
+const GAS_OPTIONS = ['CO','CO2','O2','NO','NO2','SO2','H2S','CH4','CxHy','HC','NOx']
+const ANALYSER_TYPES = ['Flue Gas','Combustion','Emissions','Portable Multi-gas','Fixed Installation','Process Gas']
 
-function statusBadge(s:string) {
-  const map:Record<string,string> = { active:'badge-pass', inactive:'badge-gray', scrapped:'badge-fail', on_loan:'badge-warn' }
-  return <span className={map[s]||'badge-gray'}>{s.replace('_',' ')}</span>
-}
-
-export default function InstrumentsPage() {
-  const [instruments, setInstruments] = useState<any[]>([])
-  const [filtered, setFiltered] = useState<any[]>([])
-  const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
+export default function NewInstrumentPage() {
+  const router  = useRouter()
   const supabase = createClient()
+  const [customers, setCustomers] = useState<any[]>([])
+  const [sites, setSites]         = useState<any[]>([])
+  const [filteredSites, setFilteredSites] = useState<any[]>([])
+  const [saving, setSaving]       = useState(false)
+  const [form, setForm] = useState<any>({
+    customer_id:'', site_id:'', name:'', make:'MRU', model:'SWG100 BIOGAS',
+    serial_number:'', firmware_version:'', asset_tag:'',
+    analyser_type:'Fixed Installation', gases_measured:[] as string[],
+    location:'', cal_interval_months:12, last_cal_date:'',
+    next_cal_date:'', purchase_date:'', warranty_expiry:'',
+    notes:'', status:'active'
+  })
 
   useEffect(() => {
-    supabase.from('instruments')
-      .select('*, customer:customers(id,name), site:sites(id,name)')
-      .order('name')
-      .then(({ data }) => {
-        setInstruments(data||[])
-        setFiltered(data||[])
-        setLoading(false)
-      })
+    Promise.all([
+      supabase.from('customers').select('id,name').order('name'),
+      supabase.from('sites').select('*').order('name'),
+    ]).then(([{ data: c }, { data: s }]) => {
+      setCustomers(c||[])
+      setSites(s||[])
+    })
   }, [])
 
-  useEffect(() => {
-    const q = search.toLowerCase()
-    setFiltered(instruments.filter(i =>
-      i.name.toLowerCase().includes(q) ||
-      i.serial_number?.toLowerCase().includes(q) ||
-      i.asset_tag?.toLowerCase().includes(q) ||
-      i.customer?.name?.toLowerCase().includes(q) ||
-      i.model?.toLowerCase().includes(q) ||
-      i.site?.name?.toLowerCase().includes(q)
-    ))
-  }, [search, instruments])
+  function set(k:string, v:any) { setForm((f:any) => ({ ...f, [k]: v })) }
+
+  function handleCustomerChange(customerId:string) {
+    set('customer_id', customerId)
+    set('site_id', '')
+    setFilteredSites(sites.filter(s => s.customer_id === customerId))
+  }
+
+  function handleSiteChange(siteId:string) {
+    set('site_id', siteId)
+    const site = sites.find(s => s.id === siteId)
+    if (site) set('location', [site.name, site.address, site.city, site.postcode].filter(Boolean).join(', '))
+  }
+
+  function toggleGas(g:string) {
+    set('gases_measured', form.gases_measured.includes(g)
+      ? form.gases_measured.filter((x:string) => x !== g)
+      : [...form.gases_measured, g])
+  }
+
+  async function handleSave() {
+    if (!form.customer_id) return alert('Please select a customer.')
+    if (!form.name) return alert('Instrument name is required.')
+    setSaving(true)
+    const { error } = await supabase.from('instruments').insert({
+      ...form,
+      cal_interval_months: Number(form.cal_interval_months),
+      last_cal_date:   form.last_cal_date   || null,
+      next_cal_date:   form.next_cal_date   || null,
+      purchase_date:   form.purchase_date   || null,
+      warranty_expiry: form.warranty_expiry || null,
+      site_id:         form.site_id         || null,
+    })
+    setSaving(false)
+    if (error) { alert(error.message); return }
+    router.push('/dashboard/instruments')
+  }
 
   return (
-    <div className="p-6 max-w-7xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Instruments</h1>
-          <p className="text-gray-500 text-sm mt-1">{filtered.length} gas analysers</p>
+    <div className="p-6 max-w-3xl">
+      <div className="mb-6">
+        <div className="text-xs text-gray-400 mb-1">
+          <a href="/dashboard/instruments" className="hover:text-brand-500">Instruments</a> / New
         </div>
-        <Link href="/dashboard/instruments/new" className="btn-primary">+ Add instrument</Link>
+        <h1 className="text-2xl font-semibold text-gray-900">Add instrument</h1>
       </div>
 
-      <div className="mb-4">
-        <input className="input max-w-md" placeholder="Search by name, serial, asset tag, customer, site..."
-          value={search} onChange={e=>setSearch(e.target.value)} />
-      </div>
+      <div className="card divide-y divide-gray-100">
+        <div className="p-5 space-y-3">
+          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Customer & site</h2>
+          <div>
+            <label className="label">Customer *</label>
+            <select className="input" value={form.customer_id} onChange={e=>handleCustomerChange(e.target.value)}>
+              <option value="">Select customer...</option>
+              {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Site</label>
+            <select className="input" value={form.site_id} onChange={e=>handleSiteChange(e.target.value)} disabled={!form.customer_id}>
+              <option value="">{form.customer_id?'Select site...':'Select a customer first'}</option>
+              {filteredSites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+        </div>
 
-      <div className="card overflow-hidden">
-        {loading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
-        ) : filtered.length===0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">
-            {search ? 'No instruments match your search.' : 'No instruments yet. Add your first one!'}
+        <div className="p-5 space-y-3">
+          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Instrument details</h2>
+          <div><label className="label">Instrument name *</label><input className="input" value={form.name} onChange={e=>set('name',e.target.value)} placeholder="e.g. FIXED GAS ANALYSER" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Make</label><input className="input" value={form.make} onChange={e=>set('make',e.target.value)} /></div>
+            <div><label className="label">Model</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} /></div>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase bg-gray-50 text-left">
-                  <th className="px-5 py-3">Instrument</th>
-                  <th className="px-5 py-3">Customer / Site</th>
-                  <th className="px-5 py-3">Serial / Asset</th>
-                  <th className="px-5 py-3">Gases</th>
-                  <th className="px-5 py-3">Cal due</th>
-                  <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filtered.map(inst=>(
-                  <tr key={inst.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-3">
-                      <div className="font-medium text-gray-900">{inst.name}</div>
-                      <div className="text-xs text-gray-400">{inst.make} {inst.model}</div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="text-gray-700">{inst.customer?.name??'—'}</div>
-                      <div className="text-xs text-gray-400">{inst.site?.name??''}</div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="text-gray-700">{inst.serial_number??'—'}</div>
-                      <div className="text-xs text-gray-400">{inst.asset_tag??''}</div>
-                    </td>
-                    <td className="px-5 py-3 text-gray-500 text-xs">{inst.gases_measured?.join(', ')??'—'}</td>
-                    <td className="px-5 py-3">
-                      <div>{calBadge(inst.next_cal_date)}</div>
-                      <div className="text-xs text-gray-400 mt-0.5">
-                        {inst.next_cal_date ? format(parseISO(inst.next_cal_date),'dd MMM yyyy') : ''}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3">{statusBadge(inst.status)}</td>
-                    <td className="px-5 py-3 text-right space-x-3">
-                      <Link href={`/dashboard/instruments/${inst.id}`} className="text-brand-500 text-xs hover:underline">View</Link>
-                      <Link href={`/dashboard/reports/new?instrument=${inst.id}`} className="text-teal-600 text-xs hover:underline">New report</Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Serial number</label><input className="input" value={form.serial_number} onChange={e=>set('serial_number',e.target.value)} /></div>
+            <div><label className="label">Asset / tag ID</label><input className="input" value={form.asset_tag} onChange={e=>set('asset_tag',e.target.value)} /></div>
           </div>
-        )}
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Firmware version</label><input className="input" value={form.firmware_version} onChange={e=>set('firmware_version',e.target.value)} /></div>
+            <div>
+              <label className="label">Analyser type</label>
+              <select className="input" value={form.analyser_type} onChange={e=>set('analyser_type',e.target.value)}>
+                {ANALYSER_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label mb-2">Gases measured</label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {GAS_OPTIONS.map(g=>(
+                <button key={g} type="button" onClick={()=>toggleGas(g)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${form.gases_measured.includes(g)?'bg-brand-500 text-white border-brand-500':'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Calibration schedule</h2>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className="label">Interval (months)</label><input className="input" type="number" value={form.cal_interval_months} onChange={e=>set('cal_interval_months',e.target.value)} min={1} /></div>
+            <div><label className="label">Last calibration</label><input className="input" type="date" value={form.last_cal_date} onChange={e=>set('last_cal_date',e.target.value)} /></div>
+            <div><label className="label">Next cal due</label><input className="input" type="date" value={form.next_cal_date} onChange={e=>set('next_cal_date',e.target.value)} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Purchase date</label><input className="input" type="date" value={form.purchase_date} onChange={e=>set('purchase_date',e.target.value)} /></div>
+            <div><label className="label">Warranty expiry</label><input className="input" type="date" value={form.warranty_expiry} onChange={e=>set('warranty_expiry',e.target.value)} /></div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes} onChange={e=>set('notes',e.target.value)} /></div>
+          <div>
+            <label className="label">Status</label>
+            <select className="input max-w-xs" value={form.status} onChange={e=>set('status',e.target.value)}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="on_loan">On loan</option>
+              <option value="scrapped">Scrapped</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="p-5 flex gap-3">
+          <button onClick={handleSave} disabled={saving} className="btn-primary">{saving?'Saving...':'Save instrument'}</button>
+          <button onClick={()=>router.back()} className="btn-secondary">Cancel</button>
+        </div>
       </div>
     </div>
   )
