@@ -7,14 +7,15 @@ const GAS_OPTIONS = ['CO','CO2','O2','NO','NO2','SO2','H2S','CH4','CxHy','HC','N
 const ANALYSER_TYPES = ['Flue Gas','Combustion','Emissions','Portable Multi-gas','Fixed Installation','Process Gas']
 
 export default function NewInstrumentPage() {
-  const router  = useRouter()
+  const router   = useRouter()
   const supabase = createClient()
-  const [customers, setCustomers] = useState<any[]>([])
-  const [sites, setSites]         = useState<any[]>([])
+  const [customers, setCustomers]   = useState<any[]>([])
+  const [sites, setSites]           = useState<any[]>([])
+  const [models, setModels]         = useState<any[]>([])
   const [filteredSites, setFilteredSites] = useState<any[]>([])
-  const [saving, setSaving]       = useState(false)
+  const [saving, setSaving]         = useState(false)
   const [form, setForm] = useState<any>({
-    customer_id:'', site_id:'', name:'', make:'MRU', model:'SWG100 BIOGAS',
+    customer_id:'', site_id:'', name:'', make:'MRU', model:'',
     serial_number:'', firmware_version:'', asset_tag:'',
     analyser_type:'Fixed Installation', gases_measured:[] as string[],
     location:'', cal_interval_months:12, last_cal_date:'',
@@ -26,9 +27,11 @@ export default function NewInstrumentPage() {
     Promise.all([
       supabase.from('customers').select('id,name').order('name'),
       supabase.from('sites').select('*').order('name'),
-    ]).then(([{ data: c }, { data: s }]) => {
+      supabase.from('instrument_models').select('*').eq('active', true).order('name'),
+    ]).then(([{ data: c }, { data: s }, { data: m }]) => {
       setCustomers(c||[])
       setSites(s||[])
+      setModels(m||[])
     })
   }, [])
 
@@ -44,6 +47,17 @@ export default function NewInstrumentPage() {
     set('site_id', siteId)
     const site = sites.find(s => s.id === siteId)
     if (site) set('location', [site.name, site.address, site.city, site.postcode].filter(Boolean).join(', '))
+  }
+
+  function handleModelChange(modelId:string) {
+    if (!modelId) return
+    const m = models.find(m => m.id === modelId)
+    if (m) {
+      set('make', m.make)
+      set('model', m.model)
+      set('analyser_type', m.analyser_type || 'Fixed Installation')
+      set('name', m.name)
+    }
   }
 
   function toggleGas(g:string) {
@@ -80,6 +94,8 @@ export default function NewInstrumentPage() {
       </div>
 
       <div className="card divide-y divide-gray-100">
+
+        {/* Customer & Site */}
         <div className="p-5 space-y-3">
           <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Customer & site</h2>
           <div>
@@ -98,6 +114,19 @@ export default function NewInstrumentPage() {
           </div>
         </div>
 
+        {/* Instrument model selector */}
+        <div className="p-5 space-y-3">
+          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Instrument model</h2>
+          <div>
+            <label className="label">Select model (auto-fills details)</label>
+            <select className="input" onChange={e=>handleModelChange(e.target.value)}>
+              <option value="">Select a model...</option>
+              {models.map(m=><option key={m.id} value={m.id}>{m.make} {m.model}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Instrument details */}
         <div className="p-5 space-y-3">
           <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Instrument details</h2>
           <div><label className="label">Instrument name *</label><input className="input" value={form.name} onChange={e=>set('name',e.target.value)} placeholder="e.g. FIXED GAS ANALYSER" /></div>
@@ -131,6 +160,7 @@ export default function NewInstrumentPage() {
           </div>
         </div>
 
+        {/* Calibration schedule */}
         <div className="p-5 space-y-3">
           <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Calibration schedule</h2>
           <div className="grid grid-cols-3 gap-3">
@@ -144,6 +174,7 @@ export default function NewInstrumentPage() {
           </div>
         </div>
 
+        {/* Notes & status */}
         <div className="p-5 space-y-3">
           <div><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes} onChange={e=>set('notes',e.target.value)} /></div>
           <div>
