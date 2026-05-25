@@ -35,7 +35,22 @@ export default function NewInstrumentPage() {
     })
   }, [])
 
-  function set(k:string, v:any) { setForm((f:any) => ({ ...f, [k]: v })) }
+  function set(k:string, v:any) {
+  setForm((f:any) => {
+    const updated = { ...f, [k]: v }
+    // Auto-calculate next cal due date
+    if (k === 'last_cal_date' || k === 'cal_interval_months') {
+      const lastCal = k === 'last_cal_date' ? v : f.last_cal_date
+      const months  = k === 'cal_interval_months' ? Number(v) : Number(f.cal_interval_months)
+      if (lastCal && months) {
+        const due = new Date(lastCal)
+        due.setMonth(due.getMonth() + months)
+        updated.next_cal_date = due.toISOString().split('T')[0]
+      }
+    }
+    return updated
+  })
+}
 
   function handleCustomerChange(customerId:string) {
     set('customer_id', customerId)
