@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 
 const UNITS = ['ppm', '% vol', '% LEL', 'mg/m3', 'mg/l', 'ppb', '% v/v']
@@ -7,8 +7,9 @@ const GASES = ['CO', 'CO2', 'O2', 'NO', 'NO2', 'SO2', 'H2S', 'CH4', 'CxHy', 'HC'
 
 const empty = {
   description:'', make:'', model:'', serial_number:'', certificate_no:'',
-  cal_date:'', cal_due_date:'', accreditation:'UKAS', notes:'',
-  gas_concentrations: [] as {gas:string, concentration:string, unit:string}[]
+  cal_date:'', cal_due_date:'', accreditation:'ISO 6141', notes:'',
+  gas_concentrations: [] as {gas:string, concentration:string, unit:string}[],
+  active: true
 }
 
 export default function StandardsPage() {
@@ -18,6 +19,9 @@ export default function StandardsPage() {
   const [editing, setEditing]     = useState<string|null>(null)
   const [form, setForm]           = useState<any>(empty)
   const [saving, setSaving]       = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
   async function load() {
@@ -38,9 +42,10 @@ export default function StandardsPage() {
       certificate_no: s.certificate_no||'',
       cal_date: s.cal_date||'',
       cal_due_date: s.cal_due_date||'',
-      accreditation: s.accreditation||'UKAS',
+      accreditation: s.accreditation||'ISO 6141',
       notes: s.notes||'',
-      gas_concentrations: s.gas_concentrations||[]
+      gas_concentrations: s.gas_concentrations||[],
+      active: s.active !== false
     })
     setShowForm(true)
     window.scrollTo(0,0)
@@ -53,7 +58,7 @@ export default function StandardsPage() {
   }
 
   function addGasLine() {
-    setForm((f:any)=>({...f, gas_concentrations:[...f.gas_concentrations, {gas:'CO', concentration:'', unit:'ppm'}]}))
+    setForm((f:any)=>({...f, gas_concentrations:[...f.gas_concentrations, {gas:'CO2', concentration:'', unit:'% vol'}]}))
   }
 
   function removeGasLine(i:number) {
@@ -68,15 +73,27 @@ export default function StandardsPage() {
     })
   }
 
+  async function uploadCert(stdId: string, file: File) {
+    setUploading(true)
+    const path = `${stdId}/${file.name}`
+    const { error: upErr } = await supabase.storage.from('certificates').upload(path, file, { upsert: true })
+    if (upErr) { alert('Upload error: ' + upErr.message); setUploading(false); return }
+    const { data: { publicUrl } } = supabase.storage.from('certificates').getPublicUrl(path)
+    await supabase.from('reference_standards').update({ certificate_pdf_url: publicUrl }).eq('id', stdId)
+    setUploading(false)
+    load()
+    alert('Certificate uploaded!')
+  }
+
   async function save() {
     if (!form.description||!form.serial_number) return alert('Description and serial number are required.')
     setSaving(true)
-    const payload = {...form}
+    const payload = { ...form }
     if (editing) {
       const { error } = await supabase.from('reference_standards').update(payload).eq('id', editing)
       if (error) { alert(error.message); setSaving(false); return }
     } else {
-      const { error } = await supabase.from('reference_standards').insert({...payload, active:true})
+      const { error } = await supabase.from('reference_standards').insert(payload)
       if (error) { alert(error.message); setSaving(false); return }
     }
     setSaving(false); setShowForm(false); setEditing(null); setForm({...empty,gas_concentrations:[]}); load()
@@ -86,13 +103,21 @@ export default function StandardsPage() {
     setShowForm(false); setEditing(null); setForm({...empty,gas_concentrations:[]})
   }
 
+  async function toggleArchive(s:any) {
+    await supabase.from('reference_standards').update({ active: !s.active }).eq('id', s.id)
+    load()
+  }
+
   async function deleteStd(id:string) {
     if (!confirm('Delete this reference standard?')) return
     await supabase.from('reference_standards').delete().eq('id', id)
     load()
   }
 
-  function set(k:string,v:string){ setForm((f:any)=>({...f,[k]:v})) }
+  function set(k:string,v:any){ setForm((f:any)=>({...f,[k]:v})) }
+
+  const visible = standards.filter(s => showArchived ? true : s.active !== false)
+  const archivedCount = standards.filter(s => s.active === false).length
 
   return (
     <div className="p-6 max-w-5xl">
@@ -115,26 +140,21 @@ export default function StandardsPage() {
             <div><label className="label">Make / supplier</label><input className="input" value={form.make} onChange={e=>set('make',e.target.value)} placeholder="e.g. BOC Gases" /></div>
             <div><label className="label">Model / grade</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} placeholder="e.g. Traceable Certified Mix" /></div>
             <div><label className="label">Serial number *</label><input className="input" value={form.serial_number} onChange={e=>set('serial_number',e.target.value)} placeholder="Cylinder S/N" /></div>
-            <div><label className="label">Certificate number</label><input className="input" value={form.certificate_no} onChange={e=>set('certificate_no',e.target.value)} placeholder="e.g. UKAS cert no." /></div>
+            <div><label className="label">Certificate number</label><input className="input" value={form.certificate_no} onChange={e=>set('certificate_no',e.target.value)} placeholder="e.g. cert no." /></div>
             <div><label className="label">Calibration date</label><input className="input" type="date" value={form.cal_date} onChange={e=>set('cal_date',e.target.value)} /></div>
             <div><label className="label">Cal due date</label><input className="input" type="date" value={form.cal_due_date} onChange={e=>set('cal_due_date',e.target.value)} /></div>
-            <div><label className="label">Accreditation</label><input className="input" value={form.accreditation} onChange={e=>set('accreditation',e.target.value)} placeholder="e.g. UKAS" /></div>
+            <div><label className="label">Accreditation</label><input className="input" value={form.accreditation} onChange={e=>set('accreditation',e.target.value)} placeholder="e.g. ISO 6141" /></div>
             <div><label className="label">Notes</label><input className="input" value={form.notes} onChange={e=>set('notes',e.target.value)} /></div>
           </div>
 
-          {/* Gas concentrations */}
           <div className="mt-5">
             <div className="flex items-center justify-between mb-2">
               <label className="label mb-0 font-semibold text-gray-700">Gas concentrations in this bottle</label>
               <button onClick={addGasLine} className="text-xs text-brand-500 hover:underline">+ Add gas</button>
             </div>
-
-            {form.gas_concentrations.length === 0 && (
-              <div className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-                No gases added yet — click "+ Add gas" to add CH4, CO2, H2S etc.
-              </div>
+            {form.gas_concentrations.length===0 && (
+              <div className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">No gases added yet — click "+ Add gas"</div>
             )}
-
             <div className="space-y-2 mt-2">
               {form.gas_concentrations.map((g:any, i:number)=>(
                 <div key={i} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-lg px-3 py-2">
@@ -171,6 +191,15 @@ export default function StandardsPage() {
         </div>
       )}
 
+      {/* Archive toggle */}
+      {archivedCount > 0 && (
+        <div className="mb-3">
+          <button onClick={()=>setShowArchived(!showArchived)} className="text-xs text-gray-500 hover:underline">
+            {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+          </button>
+        </div>
+      )}
+
       <div className="card overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
@@ -182,16 +211,17 @@ export default function StandardsPage() {
                 <th className="px-5 py-3">Gases / concentrations</th>
                 <th className="px-5 py-3">Serial / Cert</th>
                 <th className="px-5 py-3">Cal due</th>
+                <th className="px-5 py-3">Cert PDF</th>
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {standards.map(s=>(
-                <tr key={s.id} className="hover:bg-gray-50">
+              {visible.map(s=>(
+                <tr key={s.id} className={`hover:bg-gray-50 ${s.active===false?'opacity-50':''}`}>
                   <td className="px-5 py-3">
                     <div className="font-medium text-gray-900">{s.description}</div>
                     <div className="text-xs text-gray-400">{s.make} {s.model}</div>
-                    {s.accreditation&&<span className="badge-info text-xs mt-1">{s.accreditation}</span>}
+                    {s.active===false && <span className="text-xs text-gray-400 italic">Archived</span>}
                   </td>
                   <td className="px-5 py-3">
                     {s.gas_concentrations&&s.gas_concentrations.length>0 ? (
@@ -202,23 +232,39 @@ export default function StandardsPage() {
                           </span>
                         ))}
                       </div>
-                    ) : (
-                      <span className="text-gray-400 text-xs">No gases listed</span>
-                    )}
+                    ) : <span className="text-gray-400 text-xs">No gases listed</span>}
                   </td>
                   <td className="px-5 py-3">
                     <div className="text-gray-700">{s.serial_number}</div>
                     <div className="text-xs text-gray-400">{s.certificate_no}</div>
+                    <div className="text-xs text-gray-400">{s.accreditation}</div>
                   </td>
                   <td className="px-5 py-3 text-gray-700">{s.cal_due_date||'—'}</td>
+                  <td className="px-5 py-3">
+                    {s.certificate_pdf_url ? (
+                      <a href={s.certificate_pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-500 hover:underline">View PDF</a>
+                    ) : (
+                      <label className="text-xs text-gray-400 hover:text-brand-500 cursor-pointer">
+                        Upload PDF
+                        <input type="file" accept=".pdf" className="hidden" onChange={e=>{
+                          const file = e.target.files?.[0]
+                          if (file) uploadCert(s.id, file)
+                        }} />
+                      </label>
+                    )}
+                    {uploading && <span className="text-xs text-gray-400 ml-1">Uploading...</span>}
+                  </td>
                   <td className="px-5 py-3 text-right space-x-3">
                     <button onClick={()=>startEdit(s)} className="text-xs text-brand-500 hover:underline">Edit</button>
+                    <button onClick={()=>toggleArchive(s)} className="text-xs text-amber-500 hover:underline">
+                      {s.active===false?'Restore':'Archive'}
+                    </button>
                     <button onClick={()=>deleteStd(s.id)} className="text-xs text-red-400 hover:underline">Delete</button>
                   </td>
                 </tr>
               ))}
-              {standards.length===0&&(
-                <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400 text-sm">No reference standards yet. Add your first bottle above.</td></tr>
+              {visible.length===0&&(
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400 text-sm">No reference standards yet.</td></tr>
               )}
             </tbody>
           </table>
