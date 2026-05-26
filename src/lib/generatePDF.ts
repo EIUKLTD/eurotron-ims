@@ -1,20 +1,24 @@
 import jsPDF from 'jspdf'
 
 const C = {
-  brand:    [26,  107, 181] as [number,number,number],
-  brandDark:[8,   52,  106] as [number,number,number],
+  black:    [0,   0,   0]   as [number,number,number],
+  green:    [126, 216, 87]  as [number,number,number],
+  greenDark:[80,  150, 50]  as [number,number,number],
   pass:     [15,  110, 70]  as [number,number,number],
   fail:     [180, 50,  25]  as [number,number,number],
-  gray:     [100, 100, 100] as [number,number,number],
   lightBg:  [245, 247, 250] as [number,number,number],
   border:   [220, 224, 230] as [number,number,number],
   text:     [30,  30,  30]  as [number,number,number],
   muted:    [120, 120, 120] as [number,number,number],
+  white:    [255, 255, 255] as [number,number,number],
+  darkGray: [40,  40,  40]  as [number,number,number],
 }
 
 const TRACEABILITY_STATEMENT =
   'This certificate is produced by using test gases which are produced in accordance to ISO 6141. ' +
   'The certified results shown below are traceable to gas reference material or to mass traceable to national standard.'
+
+const COMPANY_ADDRESS = 'Eurotron Instruments UK Ltd  |  Unit 18 Austin Way, Royal Oak Industrial Estate, Daventry, Northamptonshire NN11 8QY  |  Tel: 01327 871044  |  www.ei-uk.com'
 
 interface CalRecord {
   parameter: string
@@ -45,7 +49,6 @@ interface ReportStandard {
 
 export interface ReportData {
   report_number: string
-  sage_number?: string | null
   visit_date: string
   visit_time: string | null
   site_location: string | null
@@ -59,6 +62,7 @@ export interface ReportData {
   customer_printed_name: string | null
   sent_at: string | null
   test_method?: string | null
+  sage_number?: string | null
   instrument: {
     name: string
     make: string | null
@@ -94,8 +98,13 @@ export function generateReportPDF(report: ReportData): jsPDF {
   const TW  = W - M * 2
   let y     = 0
 
-  function newPage() { doc.addPage(); y = 14 }
-  function chk(need: number) { if (y + need > 278) newPage() }
+  function newPage() {
+    addFooter()
+    doc.addPage()
+    y = 14
+  }
+
+  function chk(need: number) { if (y + need > 272) newPage() }
 
   function setFont(style: 'normal'|'bold', size: number, color: [number,number,number] = C.text) {
     doc.setFont('helvetica', style)
@@ -104,13 +113,10 @@ export function generateReportPDF(report: ReportData): jsPDF {
   }
 
   function sectionHeader(title: string) {
-    chk(12); y += 5
-    doc.setFillColor(...C.lightBg)
+    chk(12); y += 4
+    doc.setFillColor(...C.darkGray)
     doc.rect(M, y, TW, 7, 'F')
-    doc.setDrawColor(...C.border)
-    doc.setLineWidth(0.3)
-    doc.rect(M, y, TW, 7, 'S')
-    setFont('bold', 8, C.brand)
+    setFont('bold', 8, C.green)
     doc.text(title.toUpperCase(), M + 3, y + 4.8)
     y += 10
   }
@@ -141,12 +147,12 @@ export function generateReportPDF(report: ReportData): jsPDF {
     if (result === 'pass') {
       doc.setFillColor(...C.pass)
       doc.roundedRect(x, cy - 3, 14, 5, 1, 1, 'F')
-      setFont('bold', 7, [255,255,255])
+      setFont('bold', 7, C.white)
       doc.text('PASS', x + 7, cy + 0.5, { align: 'center' })
     } else if (result === 'fail') {
       doc.setFillColor(...C.fail)
       doc.roundedRect(x, cy - 3, 14, 5, 1, 1, 'F')
-      setFont('bold', 7, [255,255,255])
+      setFont('bold', 7, C.white)
       doc.text('FAIL', x + 7, cy + 0.5, { align: 'center' })
     } else {
       setFont('normal', 8, C.muted)
@@ -161,7 +167,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.setDrawColor(180, 210, 240)
     doc.setLineWidth(0.3)
     doc.rect(M, y, TW, 9, 'S')
-    setFont('bold', 7.5, C.brand)
+    setFont('bold', 7.5, [26, 107, 181])
     doc.text('Test method:', M + 2, y + 4)
     setFont('normal', 7.5, [40, 60, 100])
     const lines = doc.splitTextToSize(testMethod, TW - 32)
@@ -187,7 +193,6 @@ export function generateReportPDF(report: ReportData): jsPDF {
   function referenceStandardsBox(standards: ReportStandard[]) {
     if (!standards?.length) return
     chk(20)
-    // Calculate box height
     const lineH = 9.5
     const boxH = 8 + standards.length * lineH
     doc.setFillColor(240, 245, 255)
@@ -195,7 +200,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.setLineWidth(0.3)
     doc.rect(M, y, TW, boxH, 'F')
     doc.rect(M, y, TW, boxH, 'S')
-    setFont('bold', 8, C.brand)
+    setFont('bold', 8, [26, 107, 181])
     doc.text('Reference standards used:', M + 2, y + 4.5)
     let ty = y + 9
     standards.forEach((s, i) => {
@@ -213,9 +218,18 @@ export function generateReportPDF(report: ReportData): jsPDF {
     y += boxH + 4
   }
 
+  // Cal table — keeps together on same page
   function calTable(rows: CalRecord[], title: string) {
     if (!rows.length) return
-    chk(20)
+    // Calculate total height needed
+    const rowH = 7
+    const headerH = 7
+    const titleH = 8
+    const totalNeeded = titleH + headerH + rows.length * rowH + 6
+
+    // Force new page if table won't fit
+    if (y + totalNeeded > 272) newPage()
+
     setFont('bold', 9, C.text)
     doc.text(title, M, y); y += 5
 
@@ -232,7 +246,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     y += 7
 
     rows.forEach(row => {
-      chk(8); cx = M
+      cx = M
       const vals = [row.parameter, row.nominal??'', row.tolerance??'', row.measured??'', row.error_value??'']
       vals.forEach((v, i) => {
         setFont('normal', 8.5, C.text)
@@ -245,35 +259,62 @@ export function generateReportPDF(report: ReportData): jsPDF {
     y += 4
   }
 
-  // ── HEADER ───────────────────────────────────────────────────
-  doc.setFillColor(...C.brand)
-  doc.rect(0, 0, W, 32, 'F')
-  doc.setDrawColor(255,255,255)
-  doc.setLineWidth(0.5)
-  doc.circle(20, 16, 8, 'S')
-  doc.circle(20, 16, 5, 'S')
-  setFont('bold', 5, [255,255,255])
-  doc.text('EU', 20, 17.5, { align: 'center' })
-  setFont('bold', 14, [255,255,255])
-  doc.text('Eurotron Instruments (UK) Ltd', 32, 11)
-  setFont('normal', 9, [200, 220, 240])
-  doc.text('Gas Analyser Calibration Certificate', 32, 18)
-  setFont('normal', 7.5, [170, 200, 230])
-  doc.text('Instrument Service & Calibration', 32, 24)
+  function addFooter() {
+    const pageCount = (doc as any).internal.getNumberOfPages()
+    const currentPage = pageCount
+    doc.setPage(currentPage)
+    doc.setFillColor(...C.darkGray)
+    doc.rect(0, 282, W, 15, 'F')
+    setFont('normal', 6.5, C.green)
+    doc.text(COMPANY_ADDRESS, W / 2, 287, { align: 'center' })
+    setFont('normal', 6.5, C.muted)
+    doc.text(`Gas Analyser Calibration Certificate  |  ${report.report_number}`, M, 292)
+    doc.text(`Page ${currentPage} of {TOTAL}`, W - M, 292, { align: 'right' })
+  }
 
-  doc.setFillColor(...C.brandDark)
-  doc.rect(W - 56, 4, 52, 24, 'F')
-  setFont('normal', 7, [200, 220, 240])
+  // ── HEADER ───────────────────────────────────────────────────
+  // Black header background
+  doc.setFillColor(...C.black)
+  doc.rect(0, 0, W, 36, 'F')
+
+  // Green accent line at bottom of header
+  doc.setFillColor(...C.green)
+  doc.rect(0, 34, W, 2, 'F')
+
+  // EiUK Logo — rounded rectangle with green border
+  doc.setDrawColor(...C.green)
+  doc.setLineWidth(1.5)
+  doc.roundedRect(12, 5, 28, 22, 3, 3, 'S')
+  setFont('bold', 13, C.green)
+  doc.text('Ei', 18, 15)
+  setFont('bold', 9, C.green)
+  doc.text('UK', 22, 22)
+
+  // Company name and subtitle
+  setFont('bold', 13, C.white)
+  doc.text('Eurotron Instruments (UK) Ltd', 46, 13)
+  setFont('normal', 8.5, C.green)
+  doc.text('Gas Analyser Calibration Certificate', 46, 21)
+  setFont('normal', 7, [180, 180, 180])
+  doc.text('Instrument Service & Calibration', 46, 28)
+
+  // Certificate number box (top right) — dark with green border
+  doc.setFillColor(...C.darkGray)
+  doc.rect(W - 56, 4, 52, 28, 'F')
+  doc.setDrawColor(...C.green)
+  doc.setLineWidth(0.8)
+  doc.rect(W - 56, 4, 52, 28, 'S')
+  setFont('normal', 6.5, C.green)
   doc.text('CERTIFICATE NUMBER', W - 30, 11, { align: 'center' })
-  setFont('bold', 11, [255,255,255])
-  doc.text(report.report_number, W - 30, 18, { align: 'center' })
-  setFont('normal', 7.5, [200, 220, 240])
+  setFont('bold', 10, C.white)
+  doc.text(report.report_number, W - 30, 19, { align: 'center' })
+  setFont('normal', 7, [180, 180, 180])
   doc.text(
     report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '',
-    W - 30, 24, { align: 'center' }
+    W - 30, 26, { align: 'center' }
   )
 
-  y = 38
+  y = 42
 
   // ── CUSTOMER & SITE ──────────────────────────────────────────
   sectionHeader('Customer & site')
@@ -285,7 +326,9 @@ export function generateReportPDF(report: ReportData): jsPDF {
     'Visit time', report.visit_time ?? ''
   )
   fieldPair('Engineer', report.engineer?.full_name ?? report.engineer?.email ?? '', 'Engineer email', report.engineer?.email ?? '')
-  if (report.sage_number) { fieldPair('Sage sales number', report.sage_number, '', '') }
+  if ((report as any).sage_number) {
+    fieldPair('Sage sales number', (report as any).sage_number, '', '')
+  }
 
   // ── EQUIPMENT UNDER TEST ─────────────────────────────────────
   sectionHeader('Equipment under test')
@@ -303,24 +346,16 @@ export function generateReportPDF(report: ReportData): jsPDF {
   const testMethod = (report as any).test_method ||
     'Comparison against certified reference gas standards produced in accordance with ISO 6141'
 
-  // 1. Test method
-  testMethodBox(testMethod)
-
-  // 2. Traceability statement
-  traceabilityBox()
-
-  // 3. Reference standards
-  referenceStandardsBox(report.report_standards)
-
-  // 4. On arrival table
   const arrival = (report.calibration_records ?? [])
     .filter(r => r.phase === 'arrival')
     .sort((a,b) => a.sort_order - b.sort_order)
-
-  // 5. As left table
-  const asLeft = (report.calibration_records ?? [])
+  const asLeft  = (report.calibration_records ?? [])
     .filter(r => r.phase === 'as_left')
     .sort((a,b) => a.sort_order - b.sort_order)
+
+  testMethodBox(testMethod)
+  traceabilityBox()
+  referenceStandardsBox(report.report_standards)
 
   calTable(arrival, 'On arrival (as found)')
   calTable(asLeft, 'As left (after service)')
@@ -380,7 +415,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
       const wc = p.warranty === 'yes' ? C.pass : p.warranty === 'no' ? C.fail : C.muted
       doc.setFillColor(...wc)
       doc.roundedRect(cx + 1, y + 1, 22, 4.5, 1, 1, 'F')
-      setFont('bold', 7, [255,255,255])
+      setFont('bold', 7, C.white)
       doc.text(
         p.warranty === 'yes' ? 'Warranty' : p.warranty === 'no' ? 'No warranty' : '—',
         cx + 12, y + 4.2, { align: 'center' }
@@ -411,18 +446,19 @@ export function generateReportPDF(report: ReportData): jsPDF {
     M, y
   )
 
-  // ── FOOTER ────────────────────────────────────────────────────
+  // ── FOOTERS ON ALL PAGES ──────────────────────────────────────
   const totalPages = (doc as any).internal.getNumberOfPages()
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
-    doc.setFillColor(...C.lightBg)
-    doc.rect(0, 285, W, 12, 'F')
-    doc.setDrawColor(...C.border)
-    doc.setLineWidth(0.2)
-    doc.line(0, 285, W, 285)
-    setFont('normal', 7, C.muted)
-    doc.text('Eurotron Instruments (UK) Ltd  |  Gas Analyser Calibration Certificate', M, 290)
-    doc.text(`Page ${i} of ${totalPages}  |  ${report.report_number}`, W - M, 290, { align: 'right' })
+    doc.setFillColor(...C.darkGray)
+    doc.rect(0, 282, W, 15, 'F')
+    doc.setFillColor(...C.green)
+    doc.rect(0, 282, W, 1, 'F')
+    setFont('normal', 6.5, C.green)
+    doc.text(COMPANY_ADDRESS, W / 2, 288, { align: 'center' })
+    setFont('normal', 6.5, [150, 150, 150])
+    doc.text('Gas Analyser Calibration Certificate', M, 293)
+    doc.text(`Page ${i} of ${totalPages}  |  ${report.report_number}`, W - M, 293, { align: 'right' })
   }
 
   return doc
