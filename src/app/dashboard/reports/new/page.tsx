@@ -131,6 +131,7 @@ export default function NewReportPage() {
   const [standards, setStandards]     = useState<any[]>([])
   const [partsLib, setPartsLib]       = useState<any[]>([])
   const [templates, setTemplates]     = useState<any[]>([])
+  const [faultTypes, setFaultTypes]   = useState<any[]>([])
   const [profile, setProfile]         = useState<any>(null)
   const [selInstrument, setSelInstrument] = useState<any>(null)
   const [selCustomer, setSelCustomer] = useState<any>(null)
@@ -148,7 +149,8 @@ export default function NewReportPage() {
   const [recommendations, setRecommendations] = useState('')
   const [labourHours, setLabourHours] = useState('')
   const [custPrintName, setCustPrintName] = useState('')
-  const [sageNumber, setSageNumber] = useState('')
+  const [sageNumber, setSageNumber]   = useState('')
+  const [selectedFaults, setSelectedFaults] = useState<string[]>([])
 
   const [arrivalRows, setArrivalRows] = useState<CalRow[]>([])
   const [asLeftRows, setAsLeftRows]   = useState<CalRow[]>([])
@@ -156,7 +158,7 @@ export default function NewReportPage() {
   const [asLeftBottles, setAsLeftBottles]   = useState<SelectedBottle[]>([{ uid: uid(), stdId: '' }])
   const [partRows, setPartRows]       = useState<PartRow[]>([])
   const [showPartPicker, setShowPartPicker] = useState(false)
-  const [partSearch, setPartSearch] = useState('')
+  const [partSearch, setPartSearch]   = useState('')
   const [activeSection, setActiveSection] = useState(0)
   const [saving, setSaving]           = useState(false)
   const [saveMsg, setSaveMsg]         = useState('')
@@ -169,14 +171,16 @@ export default function NewReportPage() {
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
-      const [{ data: prof }, { data: insts }, { data: stds }, { data: parts }, { data: tmpls }] = await Promise.all([
+      const [{ data: prof }, { data: insts }, { data: stds }, { data: parts }, { data: tmpls }, { data: faults }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('instruments').select('*, customer:customers(*), site:sites(*)').eq('status', 'active').order('name'),
         supabase.from('reference_standards').select('*').eq('active', true).order('description'),
         supabase.from('parts_library').select('*').eq('active', true).order('description'),
         supabase.from('cal_templates').select('*').eq('active', true).order('name'),
+        supabase.from('fault_types').select('*').eq('active', true).order('sort_order'),
       ])
-      setProfile(prof); setInstruments(insts || []); setStandards(stds || []); setPartsLib(parts || []); setTemplates(tmpls || [])
+      setProfile(prof); setInstruments(insts || []); setStandards(stds || [])
+      setPartsLib(parts || []); setTemplates(tmpls || []); setFaultTypes(faults || [])
       if (preselectedId && insts) {
         const inst = insts.find((i: any) => i.id === preselectedId)
         if (inst) doSelectInstrument(inst, tmpls || [])
@@ -278,6 +282,14 @@ export default function NewReportPage() {
     }))
   }, [])
 
+  function toggleFault(description: string) {
+    setSelectedFaults(prev =>
+      prev.includes(description)
+        ? prev.filter(f => f !== description)
+        : [...prev, description]
+    )
+  }
+
   function overallResult(): 'pass' | 'fail' | 'na' {
     const all = [...arrivalRows, ...asLeftRows].filter(r => r.result === 'pass' || r.result === 'fail')
     if (!all.length) return 'na'
@@ -287,14 +299,22 @@ export default function NewReportPage() {
   async function handleSave(sendEmail = false, saveAsDraft = false) {
     if (!instrumentId) { alert('Please select an instrument.'); return }
     setSaving(true); setSaveMsg('Saving report...')
+
+    // Build findings from selected faults + free text
+    const faultText = selectedFaults.length > 0 ? selectedFaults.join('\n') : ''
+    const fullFindings = [faultText, findings].filter(Boolean).join('\n')
+
     const { data: report, error: rErr } = await supabase.from('service_reports').insert({
       instrument_id: instrumentId, customer_id: selCustomer?.id ?? selInstrument?.customer_id,
       engineer_id: profile?.id, visit_date: visitDate, visit_time: visitTime || null,
       site_location: siteLocation || null, contact_name: contactName || null,
-      firmware_at_visit: firmware || null, findings: findings || null,
+      firmware_at_visit: firmware || null, findings: fullFindings || null,
       work_carried_out: workDone || null, recommendations: recommendations || null,
       labour_hours: labourHours ? parseFloat(labourHours) : null,
-      overall_result: overallResult(), customer_printed_name: custPrintName || null, sage_number: sageNumber || null, status: saveAsDraft ? 'draft' : 'complete',
+      overall_result: overallResult(), customer_printed_name: custPrintName || null,
+      sage_number: sageNumber || null,
+      fault_codes: selectedFaults,
+      status: saveAsDraft ? 'draft' : 'complete',
     }).select().single()
     if (rErr || !report) { alert('Error: ' + rErr?.message); setSaving(false); return }
 
@@ -336,26 +356,23 @@ export default function NewReportPage() {
     }))
     if (partInserts.length) await supabase.from('report_parts').insert(partInserts)
 
-    // Save new parts to library if engineer ticked "Save to library"
     const newLibraryParts = partRows.filter(r => r.description && r.save_to_library)
     if (newLibraryParts.length) {
-      const libInserts = newLibraryParts.map(r => ({
-        description: r.description,
-        part_number: r.part_number || null,
-        category: 'Other',
-        active: true
-      }))
-      await supabase.from('parts_library').insert(libInserts)
+      await supabase.from('parts_library').insert(newLibraryParts.map(r => ({
+        description: r.description, part_number: r.part_number || null, category: 'Other', active: true
+      })))
     }
 
-    await supabase.from('instruments').update({
-      last_cal_date: visitDate, last_service_date: visitDate,
-      next_cal_date: new Date(new Date(visitDate).setMonth(new Date(visitDate).getMonth() + (selInstrument?.cal_interval_months ?? 12))).toISOString().split('T')[0],
-      firmware_version: firmware || selInstrument?.firmware_version,
-    }).eq('id', instrumentId)
+    if (!saveAsDraft) {
+      await supabase.from('instruments').update({
+        last_cal_date: visitDate, last_service_date: visitDate,
+        next_cal_date: new Date(new Date(visitDate).setMonth(new Date(visitDate).getMonth() + (selInstrument?.cal_interval_months ?? 12))).toISOString().split('T')[0],
+        firmware_version: firmware || selInstrument?.firmware_version,
+      }).eq('id', instrumentId)
+    }
 
-    setSaveMsg('Report saved!')
-    if (sendEmail && customerEmail) {
+    setSaveMsg(saveAsDraft ? 'Draft saved!' : 'Report saved!')
+    if (!saveAsDraft && sendEmail && customerEmail) {
       const subj = `Service & Calibration Report ${report.report_number} - ${selCustomer?.name ?? ''} - ${visitDate}`
       const body = `Dear ${selCustomer?.name ?? 'Customer'},\n\nPlease find attached the service and calibration report for the visit on ${visitDate}.\n\nReport: ${report.report_number}\nInstrument: ${selInstrument?.name ?? ''}\nResult: ${overallResult().toUpperCase()}\n\nKind regards,\n${profile?.full_name ?? 'Eurotron Instruments (UK) Ltd'}\nEurotron Instruments (UK) Ltd`
       window.location.href = `mailto:${encodeURIComponent(customerEmail)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`
@@ -450,7 +467,10 @@ export default function NewReportPage() {
     )
   }
 
-  const sections = ['Customer & instrument', 'On arrival (as found)', 'As left (after service)', 'Service notes', 'Parts used', 'Sign-off & send']
+  // Group fault types by category
+  const faultCategories = [...new Set(faultTypes.map(f => f.category))]
+
+  const sections = ['Customer & instrument', 'Faults found', 'On arrival (as found)', 'As left (after service)', 'Service notes', 'Parts used', 'Sign-off & send']
   const overall = overallResult()
 
   return (
@@ -477,6 +497,7 @@ export default function NewReportPage() {
         ))}
       </div>
 
+      {/* Section 0: Customer & instrument */}
       {activeSection === 0 && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Customer & instrument</h2>
@@ -514,7 +535,53 @@ export default function NewReportPage() {
         </div>
       )}
 
+      {/* Section 1: Faults found */}
       {activeSection === 1 && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="font-semibold text-gray-800 text-sm">Faults found on arrival</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Tick all faults found. These will appear in the findings section.</p>
+          </div>
+
+          {selectedFaults.length > 0 && (
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3">
+              <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} selected:</p>
+              <div className="flex flex-wrap gap-1">
+                {selectedFaults.map(f => (
+                  <span key={f} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{f}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {faultCategories.map(cat => (
+            <div key={cat} className="card p-4">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{cat}</h3>
+              <div className="space-y-2">
+                {faultTypes.filter(f => f.category === cat).map(fault => (
+                  <label key={fault.id} className="flex items-center gap-3 cursor-pointer group">
+                    <input type="checkbox"
+                      checked={selectedFaults.includes(fault.description)}
+                      onChange={() => toggleFault(fault.description)}
+                      className="w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
+                    <span className={`text-sm ${selectedFaults.includes(fault.description) ? 'text-red-700 font-medium' : 'text-gray-700'}`}>
+                      {fault.description}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div>
+            <label className="label">Additional findings (free text)</label>
+            <textarea className="input" rows={3} value={findings} onChange={e => setFindings(e.target.value)} placeholder="Any other observations not in the list above..." />
+          </div>
+        </div>
+      )}
+
+      {/* Section 2: On arrival */}
+      {activeSection === 2 && (
         <div className="space-y-4">
           <div><h2 className="font-semibold text-gray-800 text-sm">On arrival (as found)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
           {arrivalRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
@@ -526,7 +593,8 @@ export default function NewReportPage() {
         </div>
       )}
 
-      {activeSection === 2 && (
+      {/* Section 3: As left */}
+      {activeSection === 3 && (
         <div className="space-y-4">
           <div><h2 className="font-semibold text-gray-800 text-sm">As left (after service)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
           {asLeftRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
@@ -543,44 +611,50 @@ export default function NewReportPage() {
         </div>
       )}
 
-      {activeSection === 3 && (
+      {/* Section 4: Service notes */}
+      {activeSection === 4 && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Service notes</h2>
-          <div><label className="label">Findings / observations</label><textarea className="input" rows={4} value={findings} onChange={e => setFindings(e.target.value)} placeholder="Describe what was found on site..." /></div>
+          {selectedFaults.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500 mb-1 font-medium">Faults from picker:</p>
+              <p className="text-xs text-gray-700">{selectedFaults.join(', ')}</p>
+            </div>
+          )}
+          <div><label className="label">Additional findings</label><textarea className="input" rows={3} value={findings} onChange={e => setFindings(e.target.value)} placeholder="Any additional observations..." /></div>
           <div><label className="label">Work carried out</label><textarea className="input" rows={4} value={workDone} onChange={e => setWorkDone(e.target.value)} placeholder="Describe actions taken..." /></div>
           <div><label className="label">Recommendations</label><textarea className="input" rows={3} value={recommendations} onChange={e => setRecommendations(e.target.value)} placeholder="Any follow-up actions..." /></div>
           <div><label className="label">Labour time (hours)</label><input className="input" type="number" step="0.5" min="0" value={labourHours} onChange={e => setLabourHours(e.target.value)} style={{ width: 120 }} /></div>
         </div>
       )}
 
-      {activeSection === 4 && (
+      {/* Section 5: Parts */}
+      {activeSection === 5 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800 text-sm">Parts used</h2>
             <button onClick={() => setShowPartPicker(true)} className="btn-secondary text-xs py-1.5">Pick from library</button>
           </div>
-
           {showPartPicker && (
             <div className="card p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700">Parts library</span>
-                <button onClick={() => setShowPartPicker(false)} className="text-gray-400 text-lg">x</button>
+                <button onClick={() => { setShowPartPicker(false); setPartSearch('') }} className="text-gray-400 text-lg">x</button>
               </div>
-              <div className="mb-2">
-                <input className="input text-sm" placeholder="Search parts..." value={partSearch} onChange={e=>setPartSearch(e.target.value)} />
-              </div>
+              <input className="input text-sm mb-3" placeholder="Search parts..." value={partSearch} onChange={e => setPartSearch(e.target.value)} />
               <div className="space-y-1 max-h-56 overflow-y-auto">
-                {partsLib.filter((p: any) => !partSearch || p.description.toLowerCase().includes(partSearch.toLowerCase()) || (p.part_number && p.part_number.toLowerCase().includes(partSearch.toLowerCase()))).map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                    <div><div className="text-sm text-gray-800">{p.description}</div><div className="text-xs text-gray-400">{p.part_number ?? '-'}</div></div>
-                    <button onClick={() => { setPartRows(r => [...r, { ...emptyPart(), description: p.description, part_number: p.part_number ?? '' }]); }}
-                      className="text-xs text-brand-500 hover:underline ml-4">+ Add</button>
-                  </div>
-                ))}
+                {partsLib
+                  .filter(p => !partSearch || p.description.toLowerCase().includes(partSearch.toLowerCase()) || (p.part_number && p.part_number.toLowerCase().includes(partSearch.toLowerCase())))
+                  .map((p: any) => (
+                    <div key={p.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div><div className="text-sm text-gray-800">{p.description}</div><div className="text-xs text-gray-400">{p.part_number ?? '-'}</div></div>
+                      <button onClick={() => setPartRows(r => [...r, { ...emptyPart(), description: p.description, part_number: p.part_number ?? '' }])}
+                        className="text-xs text-brand-500 hover:underline ml-4">+ Add</button>
+                    </div>
+                  ))}
               </div>
             </div>
           )}
-
           {partRows.length > 0 && (
             <div className="space-y-2">
               <div className="grid grid-cols-12 gap-1 text-xs text-gray-400 px-1">
@@ -593,12 +667,9 @@ export default function NewReportPage() {
               </div>
               {partRows.map(row => (
                 <div key={row.id} className="grid grid-cols-12 gap-1 items-center">
-                  <input className="col-span-3 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description"
-                    onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
-                  <input className="col-span-2 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.part_number} placeholder="Part no."
-                    onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, part_number: e.target.value }))} />
-                  <input className="col-span-1 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" min="1" value={row.quantity}
-                    onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
+                  <input className="col-span-3 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description" onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
+                  <input className="col-span-2 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.part_number} placeholder="Part no." onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, part_number: e.target.value }))} />
+                  <input className="col-span-1 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" min="1" value={row.quantity} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
                   <select className={`col-span-2 border rounded px-1 py-1.5 text-xs ${row.warranty === 'yes' ? 'border-green-300 bg-green-50 text-green-700' : row.warranty === 'no' ? 'border-red-200 bg-red-50 text-red-600' : 'border-gray-200'}`}
                     value={row.warranty} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, warranty: e.target.value }))}>
                     <option value="">Warranty?</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
@@ -620,7 +691,8 @@ export default function NewReportPage() {
         </div>
       )}
 
-      {activeSection === 5 && (
+      {/* Section 6: Sign-off */}
+      {activeSection === 6 && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Sign-off & send</h2>
           <div className="card p-4 space-y-2 text-xs">
@@ -632,6 +704,9 @@ export default function NewReportPage() {
                 {overall === 'pass' ? 'PASS' : overall === 'fail' ? 'FAIL' : '-'}
               </span>
             </div>
+            {selectedFaults.length > 0 && (
+              <div className="flex justify-between"><span className="text-gray-500">Faults</span><span className="font-medium text-red-600">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} recorded</span></div>
+            )}
             <div className="flex justify-between"><span className="text-gray-500">Email to</span><span className="font-medium">{customerEmail || '- no email set'}</span></div>
           </div>
           <div><label className="label">Engineer signature</label><SigCanvas label="Draw signature here" canvasRef={engSigRef} onSign={() => setEngSigned(true)} /></div>
@@ -639,16 +714,16 @@ export default function NewReportPage() {
           <div><label className="label">Customer printed name</label><input className="input" value={custPrintName} onChange={e => setCustPrintName(e.target.value)} placeholder="Print name" /></div>
           {saveMsg && <div className="text-sm text-brand-600 bg-brand-50 rounded-xl px-4 py-2">{saveMsg}</div>}
           <div className="space-y-2 pt-2">
-            {customerEmail && (
-              <button onClick={() => handleSave(true)} disabled={saving}
-                className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-700 text-white font-semibold text-sm transition-colors disabled:opacity-50">
-                Save & email report to customer
-              </button>
-            )}
             <button onClick={() => handleSave(false, true)} disabled={saving}
               className="w-full py-3 rounded-xl border-2 border-amber-400 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold text-sm transition-colors disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save as draft (review later)'}
+              {saving ? 'Saving...' : '💾 Save as draft (review later)'}
             </button>
+            {customerEmail && (
+              <button onClick={() => handleSave(true, false)} disabled={saving}
+                className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-700 text-white font-semibold text-sm transition-colors disabled:opacity-50">
+                {saving ? 'Saving...' : 'Save & email report to customer'}
+              </button>
+            )}
             <button onClick={() => handleSave(false, false)} disabled={saving}
               className="w-full py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm transition-colors disabled:opacity-50">
               {saving ? 'Saving...' : 'Save & complete (no email)'}
