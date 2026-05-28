@@ -152,6 +152,12 @@ export default function ReportDetailPage() {
 
       <div className="card p-4 mb-4">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">PDF & email</p>
+        {report.status === 'draft' && (
+          <Link href={`/dashboard/reports/${id}/edit`}
+            className="w-full py-3 rounded-xl border-2 border-amber-400 bg-amber-50 text-amber-700 font-semibold text-sm flex items-center justify-center gap-2 mb-3">
+            Edit draft report
+          </Link>
+        )}
         <div className="flex gap-2 mb-2">
           <button onClick={handleDownloadPDF} disabled={pdfLoading}
             className="flex-1 py-3 rounded-xl bg-brand-500 hover:bg-brand-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
