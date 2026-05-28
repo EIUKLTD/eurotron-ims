@@ -291,9 +291,9 @@ export default function NewReportPage() {
   }
 
   function overallResult(): 'pass' | 'fail' | 'na' {
-    const all = [...arrivalRows, ...asLeftRows].filter(r => r.result === 'pass' || r.result === 'fail')
-    if (!all.length) return 'na'
-    return all.some(r => r.result === 'fail') ? 'fail' : 'pass'
+    const asLeftOnly = asLeftRows.filter(r => r.result === 'pass' || r.result === 'fail')
+    if (!asLeftOnly.length) return 'na'
+    return asLeftOnly.some(r => r.result === 'fail') ? 'fail' : 'pass'
   }
 
   async function handleSave(sendEmail = false, saveAsDraft = false) {
