@@ -3,7 +3,6 @@ import jsPDF from 'jspdf'
 const C = {
   black:    [0,   0,   0]   as [number,number,number],
   green:    [126, 216, 87]  as [number,number,number],
-  greenDark:[80,  150, 50]  as [number,number,number],
   pass:     [15,  110, 70]  as [number,number,number],
   fail:     [180, 50,  25]  as [number,number,number],
   lightBg:  [245, 247, 250] as [number,number,number],
@@ -99,7 +98,6 @@ export function generateReportPDF(report: ReportData): jsPDF {
   let y     = 0
 
   function newPage() {
-    addFooter()
     doc.addPage()
     y = 14
   }
@@ -218,16 +216,10 @@ export function generateReportPDF(report: ReportData): jsPDF {
     y += boxH + 4
   }
 
-  // Cal table — keeps together on same page
   function calTable(rows: CalRecord[], title: string) {
     if (!rows.length) return
-    // Calculate total height needed
     const rowH = 7
-    const headerH = 7
-    const titleH = 8
-    const totalNeeded = titleH + headerH + rows.length * rowH + 6
-
-    // Force new page if table won't fit
+    const totalNeeded = 8 + 7 + rows.length * rowH + 6
     if (y + totalNeeded > 272) newPage()
 
     setFont('bold', 9, C.text)
@@ -259,46 +251,32 @@ export function generateReportPDF(report: ReportData): jsPDF {
     y += 4
   }
 
-  function addFooter() {
-    const pageCount = (doc as any).internal.getNumberOfPages()
-    const currentPage = pageCount
-    doc.setPage(currentPage)
-    doc.setFillColor(...C.darkGray)
-    doc.rect(0, 282, W, 15, 'F')
-    setFont('normal', 6.5, C.green)
-    doc.text(COMPANY_ADDRESS, W / 2, 287, { align: 'center' })
-    setFont('normal', 6.5, C.muted)
-    doc.text(`Gas Analyser Calibration Certificate  |  ${report.report_number}`, M, 292)
-    doc.text(`Page ${currentPage} of {TOTAL}`, W - M, 292, { align: 'right' })
-  }
-
   // ── HEADER ───────────────────────────────────────────────────
-  // Black header background
   doc.setFillColor(...C.black)
   doc.rect(0, 0, W, 36, 'F')
 
-  // Green accent line at bottom of header
+  // Green accent line
   doc.setFillColor(...C.green)
   doc.rect(0, 34, W, 2, 'F')
 
-  // EiUK Logo — rounded rectangle with green border
+  // EiUK Logo box
   doc.setDrawColor(...C.green)
   doc.setLineWidth(1.5)
-  doc.roundedRect(12, 5, 28, 22, 3, 3, 'S')
-  setFont('bold', 13, C.green)
-  doc.text('Ei', 18, 15)
-  setFont('bold', 9, C.green)
-  doc.text('UK', 22, 22)
+  doc.roundedRect(12, 6, 26, 22, 3, 3, 'S')
+  setFont('bold', 11, C.green)
+  doc.text('Ei', 16, 16)
+  setFont('bold', 11, C.green)
+  doc.text('UK', 20, 24)
 
-  // Company name and subtitle
+  // Company name
   setFont('bold', 13, C.white)
-  doc.text('Eurotron Instruments (UK) Ltd', 46, 13)
+  doc.text('Eurotron Instruments (UK) Ltd', 44, 13)
   setFont('normal', 8.5, C.green)
-  doc.text('Gas Analyser Calibration Certificate', 46, 21)
+  doc.text('Gas Analyser Calibration Certificate', 44, 21)
   setFont('normal', 7, [180, 180, 180])
-  doc.text('Instrument Service & Calibration', 46, 28)
+  doc.text('Instrument Service & Calibration', 44, 28)
 
-  // Certificate number box (top right) — dark with green border
+  // Certificate number box
   doc.setFillColor(...C.darkGray)
   doc.rect(W - 56, 4, 52, 28, 'F')
   doc.setDrawColor(...C.green)
@@ -318,7 +296,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   // ── CUSTOMER & SITE ──────────────────────────────────────────
   sectionHeader('Customer & site')
-  fieldPair('Customer', report.customer?.name ?? '', 'Site / location', report.site_location ?? '')
+  fieldPair('Customer', report.customer?.name ?? '', 'Site / location', (report.site_location ?? '').replace(/`/g, ''))
   fieldPair('Contact on site', report.contact_name ?? '', 'Customer phone', report.customer?.contact_phone ?? '')
   fieldPair(
     'Visit date',
@@ -356,7 +334,6 @@ export function generateReportPDF(report: ReportData): jsPDF {
   testMethodBox(testMethod)
   traceabilityBox()
   referenceStandardsBox(report.report_standards)
-
   calTable(arrival, 'On arrival (as found)')
   calTable(asLeft, 'As left (after service)')
 
@@ -446,7 +423,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     M, y
   )
 
-  // ── FOOTERS ON ALL PAGES ──────────────────────────────────────
+  // ── FOOTER ON ALL PAGES ───────────────────────────────────────
   const totalPages = (doc as any).internal.getNumberOfPages()
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
@@ -454,9 +431,9 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.rect(0, 282, W, 15, 'F')
     doc.setFillColor(...C.green)
     doc.rect(0, 282, W, 1, 'F')
-    setFont('normal', 6.5, C.green)
+    setFont('normal', 6, C.green)
     doc.text(COMPANY_ADDRESS, W / 2, 288, { align: 'center' })
-    setFont('normal', 6.5, [150, 150, 150])
+    setFont('normal', 6, [150, 150, 150])
     doc.text('Gas Analyser Calibration Certificate', M, 293)
     doc.text(`Page ${i} of ${totalPages}  |  ${report.report_number}`, W - M, 293, { align: 'right' })
   }
