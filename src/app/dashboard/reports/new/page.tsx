@@ -156,6 +156,7 @@ export default function NewReportPage() {
   const [asLeftBottles, setAsLeftBottles]   = useState<SelectedBottle[]>([{ uid: uid(), stdId: '' }])
   const [partRows, setPartRows]       = useState<PartRow[]>([])
   const [showPartPicker, setShowPartPicker] = useState(false)
+  const [partSearch, setPartSearch] = useState('')
   const [activeSection, setActiveSection] = useState(0)
   const [saving, setSaving]           = useState(false)
   const [saveMsg, setSaveMsg]         = useState('')
@@ -283,7 +284,7 @@ export default function NewReportPage() {
     return all.some(r => r.result === 'fail') ? 'fail' : 'pass'
   }
 
-  async function handleSave(sendEmail = false) {
+  async function handleSave(sendEmail = false, saveAsDraft = false) {
     if (!instrumentId) { alert('Please select an instrument.'); return }
     setSaving(true); setSaveMsg('Saving report...')
     const { data: report, error: rErr } = await supabase.from('service_reports').insert({
@@ -293,7 +294,7 @@ export default function NewReportPage() {
       firmware_at_visit: firmware || null, findings: findings || null,
       work_carried_out: workDone || null, recommendations: recommendations || null,
       labour_hours: labourHours ? parseFloat(labourHours) : null,
-      overall_result: overallResult(), customer_printed_name: custPrintName || null, sage_number: sageNumber || null, status: 'complete',
+      overall_result: overallResult(), customer_printed_name: custPrintName || null, sage_number: sageNumber || null, status: saveAsDraft ? 'draft' : 'complete',
     }).select().single()
     if (rErr || !report) { alert('Error: ' + rErr?.message); setSaving(false); return }
 
@@ -565,8 +566,11 @@ export default function NewReportPage() {
                 <span className="text-sm font-medium text-gray-700">Parts library</span>
                 <button onClick={() => setShowPartPicker(false)} className="text-gray-400 text-lg">x</button>
               </div>
+              <div className="mb-2">
+                <input className="input text-sm" placeholder="Search parts..." value={partSearch} onChange={e=>setPartSearch(e.target.value)} />
+              </div>
               <div className="space-y-1 max-h-56 overflow-y-auto">
-                {partsLib.map((p: any) => (
+                {partsLib.filter((p: any) => !partSearch || p.description.toLowerCase().includes(partSearch.toLowerCase()) || (p.part_number && p.part_number.toLowerCase().includes(partSearch.toLowerCase()))).map((p: any) => (
                   <div key={p.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
                     <div><div className="text-sm text-gray-800">{p.description}</div><div className="text-xs text-gray-400">{p.part_number ?? '-'}</div></div>
                     <button onClick={() => { setPartRows(r => [...r, { ...emptyPart(), description: p.description, part_number: p.part_number ?? '' }]); }}
@@ -641,9 +645,13 @@ export default function NewReportPage() {
                 Save & email report to customer
               </button>
             )}
-            <button onClick={() => handleSave(false)} disabled={saving}
+            <button onClick={() => handleSave(false, true)} disabled={saving}
+              className="w-full py-3 rounded-xl border-2 border-amber-400 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold text-sm transition-colors disabled:opacity-50">
+              {saving ? 'Saving...' : 'Save as draft (review later)'}
+            </button>
+            <button onClick={() => handleSave(false, false)} disabled={saving}
               className="w-full py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm transition-colors disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save report (no email)'}
+              {saving ? 'Saving...' : 'Save & complete (no email)'}
             </button>
           </div>
         </div>
@@ -656,4 +664,3 @@ export default function NewReportPage() {
     </div>
   )
 }
-
