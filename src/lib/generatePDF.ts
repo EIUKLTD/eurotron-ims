@@ -2,7 +2,7 @@
 import jsPDF from 'jspdf'
 
 const C = {
-  black:    [0,   0,   0]   as [number,number,number],
+  black:    [0,   0,   0]   as [number,number,number],EIUK
   green:    [126, 216, 87]  as [number,number,number],
   pass:     [15,  110, 70]  as [number,number,number],
   fail:     [180, 50,  25]  as [number,number,number],
@@ -261,13 +261,12 @@ export function generateReportPDF(report: ReportData): jsPDF {
   doc.rect(0, 34, W, 2, 'F')
 
   // EiUK Logo box
-  // EiUK Logo box
   doc.setFillColor(20, 20, 20)
   doc.setDrawColor(...C.green)
-  doc.setLineWidth(2)
+  doc.setLineWidth(0.8)
   doc.roundedRect(10, 5, 32, 24, 4, 4, 'FD')
-  setFont('bold', 15, C.green)
-  doc.text('EiUK', 26, 19, { align: 'center' })
+  setFont('bold', 20, C.green)
+  doc.text('EiUK', 26, 21, { align: 'center' })
 
   // Company name
   setFont('bold', 13, C.white)
