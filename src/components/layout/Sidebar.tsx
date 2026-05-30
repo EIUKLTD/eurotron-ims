@@ -22,6 +22,7 @@ const adminItems = [
   { href: '/dashboard/admin/templates',  label: 'Cal Templates',  icon: '☰' },
   { href: '/dashboard/admin/models', label: 'Inst. Models', icon: '⊙' },
   { href: '/dashboard/admin/faults', label: 'Fault Types', icon: '⚠' },
+  { href: '/dashboard/admin/sensors', label: 'Sensor Library', icon: '⊙' },
 ]
 
 const portalNav = [
