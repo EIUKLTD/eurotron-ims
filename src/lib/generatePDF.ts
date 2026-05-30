@@ -2,7 +2,7 @@
 import jsPDF from 'jspdf'
 
 const C = {
-  black:    [0,   0,   0]   as [number,number,number],EIUK
+  black:    [0,   0,   0]   as [number,number,number],
   green:    [126, 216, 87]  as [number,number,number],
   pass:     [15,  110, 70]  as [number,number,number],
   fail:     [180, 50,  25]  as [number,number,number],
