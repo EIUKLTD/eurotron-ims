@@ -95,7 +95,14 @@ export default function NewInstrumentPage() {
       site_id:         form.site_id         || null,
     })
     setSaving(false)
-    if (error) { alert(error.message); return }
+   if (error) { 
+  if (error.message.includes('unique')) {
+    alert('This serial number already exists in the system. Please check the serial number and try again.')
+  } else {
+    alert(error.message)
+  }
+  return 
+}
     router.push('/dashboard/instruments')
   }
 
