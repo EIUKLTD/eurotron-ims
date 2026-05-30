@@ -18,58 +18,45 @@ const OUTCOMES: Record<string, { label: string; color: string }> = {
 const emptyCall = {
   call_date: new Date().toISOString().split('T')[0],
   call_time: new Date().toTimeString().slice(0,5),
-  contact_name: '',
-  contact_phone: '',
-  issue_reported: '',
-  action_taken: '',
-  outcome: 'resolved',
-  follow_up_date: '',
-  follow_up_notes: '',
+  contact_name: '', contact_phone: '', issue_reported: '',
+  action_taken: '', outcome: 'resolved', follow_up_date: '', follow_up_notes: '',
 }
 
 export default function InstrumentDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const [inst, setInst]       = useState<any>(null)
-  const [reports, setReports] = useState<any[]>([])
-  const [parts, setParts]     = useState<any[]>([])
-  const [calls, setCalls]     = useState<any[]>([])
-  const [tab, setTab]         = useState<'overview'|'history'|'sensors'|'allparts'|'calls'>('overview')
-  const [loading, setLoading] = useState(true)
+  const [inst, setInst]             = useState<any>(null)
+  const [reports, setReports]       = useState<any[]>([])
+  const [parts, setParts]           = useState<any[]>([])
+  const [calls, setCalls]           = useState<any[]>([])
+  const [sensors, setSensors]       = useState<any[]>([])
+  const [sensorLib, setSensorLib]   = useState<any[]>([])
+  const [tab, setTab]               = useState<'overview'|'config'|'history'|'sensors'|'allparts'|'calls'>('overview')
+  const [loading, setLoading]       = useState(true)
   const [showCallForm, setShowCallForm] = useState(false)
-  const [callForm, setCallForm] = useState<any>(emptyCall)
-  const [saving, setSaving]   = useState(false)
-  const [profile, setProfile] = useState<any>(null)
+  const [showSensorPicker, setShowSensorPicker] = useState(false)
+  const [callForm, setCallForm]     = useState<any>(emptyCall)
+  const [saving, setSaving]         = useState(false)
+  const [profile, setProfile]       = useState<any>(null)
+  const [samplePoints, setSamplePoints] = useState(1)
+  const [newSensor, setNewSensor]   = useState<any>({ type:'sensor', gas:'O2', name:'', sensor_type:'Electrochemical', range_min:'', range_max:'', unit:'ppm', part_number:'', notes:'', installed_date:'' })
   const supabase = createClient()
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser()
-    const [{ data: prof }, { data: i }, { data: r }, { data: c }] = await Promise.all([
+    const [{ data: prof }, { data: i }, { data: r }, { data: c }, { data: s }, { data: lib }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user!.id).single(),
       supabase.from('instruments').select('*, customer:customers(*), site:sites(*)').eq('id', id).single(),
-      supabase.from('service_reports')
-        .select('*, engineer:profiles(full_name), report_parts(*)')
-        .eq('instrument_id', id)
-        .order('visit_date', { ascending: false }),
-      supabase.from('call_logs')
-        .select('*, logged_by:profiles(full_name)')
-        .eq('instrument_id', id)
-        .order('call_date', { ascending: false }),
+      supabase.from('service_reports').select('*, engineer:profiles(full_name), report_parts(*)').eq('instrument_id', id).order('visit_date', { ascending: false }),
+      supabase.from('call_logs').select('*, logged_by:profiles(full_name)').eq('instrument_id', id).order('call_date', { ascending: false }),
+      supabase.from('instrument_sensors').select('*').eq('instrument_id', id).order('type').order('gas'),
+      supabase.from('sensor_library').select('*').eq('active', true).order('type').order('name'),
     ])
-    setProfile(prof)
-    setInst(i)
-    setReports(r||[])
-    setCalls(c||[])
+    setProfile(prof); setInst(i); setReports(r||[]); setCalls(c||[]); setSensors(s||[]); setSensorLib(lib||[])
+    setSamplePoints(i?.sample_points ?? 1)
     const allParts: any[] = []
     ;(r||[]).forEach((report: any) => {
       ;(report.report_parts||[]).forEach((p: any) => {
-        allParts.push({
-          ...p,
-          visit_date: report.visit_date,
-          report_number: report.report_number,
-          report_id: report.id,
-          sage_number: report.sage_number,
-          engineer: report.engineer?.full_name ?? '—'
-        })
+        allParts.push({ ...p, visit_date: report.visit_date, report_number: report.report_number, report_id: report.id, sage_number: report.sage_number, engineer: report.engineer?.full_name ?? '—' })
       })
     })
     setParts(allParts)
@@ -78,35 +65,64 @@ export default function InstrumentDetailPage() {
 
   useEffect(() => { load() }, [id])
 
+  async function saveSamplePoints(val: number) {
+    setSamplePoints(val)
+    await supabase.from('instruments').update({ sample_points: val }).eq('id', id)
+  }
+
+  async function addSensorFromLib(libItem: any) {
+    const { error } = await supabase.from('instrument_sensors').insert({
+      instrument_id: id, sensor_library_id: libItem.id, type: libItem.type,
+      gas: libItem.gas, name: libItem.name, sensor_type: libItem.sensor_type,
+      range_min: libItem.range_min, range_max: libItem.range_max, unit: libItem.unit,
+      part_number: libItem.part_number, notes: libItem.notes,
+      installed_date: new Date().toISOString().split('T')[0], active: true,
+    })
+    if (error) { alert(error.message); return }
+    setShowSensorPicker(false); load()
+  }
+
+  async function addCustomSensor() {
+    if (!newSensor.name) return alert('Name is required.')
+    const { error } = await supabase.from('instrument_sensors').insert({
+      instrument_id: id, type: newSensor.type,
+      gas: newSensor.type === 'sensor' ? newSensor.gas : null,
+      name: newSensor.name,
+      sensor_type: newSensor.type === 'sensor' ? newSensor.sensor_type : null,
+      range_min: newSensor.range_min ? parseFloat(newSensor.range_min) : null,
+      range_max: newSensor.range_max ? parseFloat(newSensor.range_max) : null,
+      unit: newSensor.unit || null, part_number: newSensor.part_number || null,
+      notes: newSensor.notes || null,
+      installed_date: newSensor.installed_date || new Date().toISOString().split('T')[0],
+      active: true,
+    })
+    if (error) { alert(error.message); return }
+    setNewSensor({ type:'sensor', gas:'O2', name:'', sensor_type:'Electrochemical', range_min:'', range_max:'', unit:'ppm', part_number:'', notes:'', installed_date:'' })
+    load()
+  }
+
+  async function removeSensor(sensorId: string) {
+    if (!confirm('Remove this sensor/option?')) return
+    await supabase.from('instrument_sensors').delete().eq('id', sensorId); load()
+  }
+
   async function saveCall() {
     if (!callForm.issue_reported) return alert('Please describe the issue.')
     setSaving(true)
-    const { error } = await supabase.from('call_logs').insert({
-      ...callForm,
-      instrument_id: id,
-      customer_id: inst?.customer_id,
-      call_time: callForm.call_time || null,
-      follow_up_date: callForm.follow_up_date || null,
+    await supabase.from('call_logs').insert({
+      ...callForm, instrument_id: id, customer_id: inst?.customer_id,
+      call_time: callForm.call_time || null, follow_up_date: callForm.follow_up_date || null,
       logged_by: profile?.id,
       status: callForm.outcome === 'resolved' || callForm.outcome === 'no_action' ? 'closed' : 'open',
     })
-    setSaving(false)
-    if (error) { alert(error.message); return }
-    setShowCallForm(false); setCallForm(emptyCall); load()
+    setSaving(false); setShowCallForm(false); setCallForm(emptyCall); load()
   }
 
-  async function closeCall(callId: string) {
-    await supabase.from('call_logs').update({ status: 'closed' }).eq('id', callId)
-    load()
-  }
-
-  async function deleteCall(callId: string) {
-    if (!confirm('Delete this call log?')) return
-    await supabase.from('call_logs').delete().eq('id', callId)
-    load()
-  }
+  async function closeCall(callId: string) { await supabase.from('call_logs').update({ status: 'closed' }).eq('id', callId); load() }
+  async function deleteCall(callId: string) { if (!confirm('Delete?')) return; await supabase.from('call_logs').delete().eq('id', callId); load() }
 
   function setC(k: string, v: string) { setCallForm((f: any) => ({ ...f, [k]: v })) }
+  function setN(k: string, v: string) { setNewSensor((f: any) => ({ ...f, [k]: v })) }
 
   if (loading) return <div className="p-8 text-gray-400 text-sm">Loading...</div>
   if (!inst)   return <div className="p-8 text-gray-400 text-sm">Instrument not found.</div>
@@ -114,6 +130,8 @@ export default function InstrumentDetailPage() {
   const calDays = inst.next_cal_date ? differenceInDays(parseISO(inst.next_cal_date), new Date()) : null
   const sensorParts = parts.filter(p => SENSOR_KEYWORDS.some(k => p.description?.toLowerCase().includes(k)))
   const openCalls = calls.filter(c => c.status === 'open').length
+  const configuredSensors = sensors.filter(s => s.type === 'sensor')
+  const configuredOptions = sensors.filter(s => s.type === 'option')
 
   const Row = ({ label, value }: { label:string; value?:string|null }) => (
     <div className="grid grid-cols-2 gap-4 py-2.5 border-b border-gray-50 last:border-0">
@@ -123,11 +141,12 @@ export default function InstrumentDetailPage() {
   )
 
   const tabs = [
-    { key: 'overview',  label: 'Overview' },
-    { key: 'history',   label: `Service history (${reports.length})` },
-    { key: 'sensors',   label: `Sensor changes (${sensorParts.length})` },
-    { key: 'allparts',  label: `Parts history (${parts.length})` },
-    { key: 'calls',     label: `Calls ${openCalls > 0 ? `(${openCalls} open)` : `(${calls.length})`}` },
+    { key: 'overview', label: 'Overview' },
+    { key: 'config',   label: `Configuration (${sensors.length})` },
+    { key: 'history',  label: `Service history (${reports.length})` },
+    { key: 'sensors',  label: `Sensor changes (${sensorParts.length})` },
+    { key: 'allparts', label: `Parts history (${parts.length})` },
+    { key: 'calls',    label: `Calls ${openCalls > 0 ? `(${openCalls} open)` : `(${calls.length})`}` },
   ]
 
   return (
@@ -153,7 +172,6 @@ export default function InstrumentDetailPage() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1 overflow-x-auto">
         {tabs.map(t=>(
           <button key={t.key} onClick={()=>setTab(t.key as any)}
@@ -163,7 +181,7 @@ export default function InstrumentDetailPage() {
         ))}
       </div>
 
-      {/* Overview tab */}
+      {/* OVERVIEW */}
       {tab==='overview'&&(
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="card p-5">
@@ -177,6 +195,7 @@ export default function InstrumentDetailPage() {
             <Row label="Serial number"  value={inst.serial_number} />
             <Row label="Asset / tag ID" value={inst.asset_tag} />
             <Row label="Firmware"       value={inst.firmware_version} />
+            <Row label="Sample points"  value={String(inst.sample_points ?? 1)} />
             <Row label="Status"         value={inst.status} />
           </div>
           <div className="card p-5">
@@ -192,7 +211,170 @@ export default function InstrumentDetailPage() {
         </div>
       )}
 
-      {/* Service history tab */}
+      {/* CONFIGURATION */}
+      {tab==='config'&&(
+        <div className="space-y-4">
+          {/* Sample points */}
+          <div className="card p-5">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Sample points</h3>
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-600">Number of sample points:</label>
+              <select className="input w-24" value={samplePoints} onChange={e=>saveSamplePoints(parseInt(e.target.value))}>
+                {[1,2,3,4,5,6,7,8,9,10].map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Sensors */}
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-100">
+              <div>
+                <span className="font-semibold text-gray-700 text-sm">Sensors</span>
+                <span className="text-gray-400 text-xs ml-2">{configuredSensors.length} fitted</span>
+              </div>
+              <button onClick={()=>setShowSensorPicker(!showSensorPicker)} className="text-xs text-brand-500 hover:underline">+ Add sensor</button>
+            </div>
+
+            {showSensorPicker && (
+              <div className="p-4 border-b border-gray-100 bg-blue-50">
+                <p className="text-xs font-semibold text-gray-700 mb-3">Pick from library:</p>
+                <div className="space-y-1 max-h-48 overflow-y-auto mb-4">
+                  {sensorLib.filter(l => l.type === 'sensor').map(l=>(
+                    <div key={l.id} className="flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0">
+                      <div>
+                        <span className="text-xs font-medium text-gray-800">{l.name}</span>
+                        {l.range_min !== null && <span className="text-xs text-gray-400 ml-2">{l.range_min}-{l.range_max} {l.unit}</span>}
+                      </div>
+                      <button onClick={()=>addSensorFromLib(l)} className="text-xs text-brand-500 hover:underline ml-4">Add</button>
+                    </div>
+                  ))}
+                  {sensorLib.filter(l => l.type === 'sensor').length === 0 && (
+                    <p className="text-xs text-gray-400">No sensors in library yet. Add them in Admin → Sensor Library.</p>
+                  )}
+                </div>
+                <p className="text-xs font-semibold text-gray-700 mb-2">Or add custom sensor:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label className="label">Gas</label>
+                    <select className="input text-xs" value={newSensor.gas} onChange={e=>setN('gas',e.target.value)}>
+                      {['O2','CO','CO2','CH4','H2S','NO','NO2','SO2'].map(g=><option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                  <div><label className="label">Name *</label><input className="input text-xs" value={newSensor.name} onChange={e=>setN('name',e.target.value)} placeholder="e.g. H2S Electrochemical" /></div>
+                  <div><label className="label">Range min</label><input className="input text-xs" type="number" value={newSensor.range_min} onChange={e=>setN('range_min',e.target.value)} placeholder="0" /></div>
+                  <div><label className="label">Range max</label><input className="input text-xs" type="number" value={newSensor.range_max} onChange={e=>setN('range_max',e.target.value)} placeholder="2000" /></div>
+                  <div><label className="label">Unit</label>
+                    <select className="input text-xs" value={newSensor.unit} onChange={e=>setN('unit',e.target.value)}>
+                      {['ppm','% vol','% LEL'].map(u=><option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div><label className="label">Part number</label><input className="input text-xs" value={newSensor.part_number} onChange={e=>setN('part_number',e.target.value)} /></div>
+                  <div><label className="label">Installed date</label><input className="input text-xs" type="date" value={newSensor.installed_date} onChange={e=>setN('installed_date',e.target.value)} /></div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={addCustomSensor} className="btn-primary text-xs py-1.5">Add custom sensor</button>
+                  <button onClick={()=>setShowSensorPicker(false)} className="btn-secondary text-xs py-1.5">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {configuredSensors.length === 0 && !showSensorPicker ? (
+              <div className="px-5 py-6 text-center text-gray-400 text-sm">No sensors configured yet.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase bg-gray-50">
+                    <th className="px-5 py-2 text-left">Gas</th>
+                    <th className="px-5 py-2 text-left">Sensor</th>
+                    <th className="px-5 py-2 text-left">Range</th>
+                    <th className="px-5 py-2 text-left">Installed</th>
+                    <th className="px-5 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {configuredSensors.map(s=>(
+                    <tr key={s.id} className="hover:bg-gray-50">
+                      <td className="px-5 py-2"><span className="badge-info">{s.gas}</span></td>
+                      <td className="px-5 py-2 font-medium text-gray-900">{s.name}</td>
+                      <td className="px-5 py-2 text-gray-500 text-xs font-mono">
+                        {s.range_min !== null && s.range_max !== null ? `${s.range_min}-${s.range_max} ${s.unit}` : '—'}
+                      </td>
+                      <td className="px-5 py-2 text-gray-400 text-xs">
+                        {s.installed_date ? format(parseISO(s.installed_date),'dd MMM yyyy') : '—'}
+                      </td>
+                      <td className="px-5 py-2 text-right">
+                        <button onClick={()=>removeSensor(s.id)} className="text-xs text-red-400 hover:underline">Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Options */}
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-100">
+              <div>
+                <span className="font-semibold text-gray-700 text-sm">Options & accessories</span>
+                <span className="text-gray-400 text-xs ml-2">{configuredOptions.length} fitted</span>
+              </div>
+              <button onClick={()=>{
+                const name = prompt('Enter option name:')
+                if (!name) return
+                const libMatch = sensorLib.find(l => l.type === 'option' && l.name.toLowerCase() === name.toLowerCase())
+                if (libMatch) { addSensorFromLib(libMatch) }
+                else { setNewSensor((f:any)=>({...f, type:'option', name})); setTimeout(addCustomSensor, 100) }
+              }} className="text-xs text-brand-500 hover:underline">+ Add option</button>
+            </div>
+
+            {/* Options picker from library */}
+            {sensorLib.filter(l => l.type === 'option').length > 0 && (
+              <div className="px-5 py-3 border-b border-gray-100">
+                <p className="text-xs text-gray-500 mb-2">Quick add from library:</p>
+                <div className="flex flex-wrap gap-2">
+                  {sensorLib.filter(l => l.type === 'option').map(l=>(
+                    <button key={l.id} onClick={()=>addSensorFromLib(l)}
+                      className="text-xs px-3 py-1 rounded-full border border-brand-200 text-brand-600 hover:bg-brand-50 transition-colors">
+                      + {l.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {configuredOptions.length === 0 ? (
+              <div className="px-5 py-6 text-center text-gray-400 text-sm">No options configured yet.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase bg-gray-50">
+                    <th className="px-5 py-2 text-left">Option</th>
+                    <th className="px-5 py-2 text-left">Part no.</th>
+                    <th className="px-5 py-2 text-left">Installed</th>
+                    <th className="px-5 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {configuredOptions.map(o=>(
+                    <tr key={o.id} className="hover:bg-gray-50">
+                      <td className="px-5 py-2 font-medium text-gray-900">{o.name}</td>
+                      <td className="px-5 py-2 text-gray-400 text-xs font-mono">{o.part_number||'—'}</td>
+                      <td className="px-5 py-2 text-gray-400 text-xs">
+                        {o.installed_date ? format(parseISO(o.installed_date),'dd MMM yyyy') : '—'}
+                      </td>
+                      <td className="px-5 py-2 text-right">
+                        <button onClick={()=>removeSensor(o.id)} className="text-xs text-red-400 hover:underline">Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SERVICE HISTORY */}
       {tab==='history'&&(
         <div className="card overflow-hidden">
           {reports.length===0?(
@@ -240,7 +422,7 @@ export default function InstrumentDetailPage() {
         </div>
       )}
 
-      {/* Sensor changes tab */}
+      {/* SENSOR CHANGES */}
       {tab==='sensors'&&(
         <div>
           {sensorParts.length===0?(
@@ -280,7 +462,7 @@ export default function InstrumentDetailPage() {
         </div>
       )}
 
-      {/* All parts tab */}
+      {/* ALL PARTS */}
       {tab==='allparts'&&(
         <div className="card overflow-hidden">
           {parts.length===0?(
@@ -321,29 +503,22 @@ export default function InstrumentDetailPage() {
         </div>
       )}
 
-      {/* Calls tab */}
+      {/* CALLS */}
       {tab==='calls'&&(
         <div className="space-y-3">
           <div className="flex justify-end">
             <button onClick={()=>setShowCallForm(!showCallForm)} className="btn-primary">+ Log call</button>
           </div>
-
           {showCallForm && (
             <div className="card p-5">
               <h2 className="font-semibold text-gray-900 mb-4">Log a call for {inst.name}</h2>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="label">Date</label><input className="input" type="date" value={callForm.call_date} onChange={e=>setC('call_date',e.target.value)} /></div>
                 <div><label className="label">Time</label><input className="input" type="time" value={callForm.call_time} onChange={e=>setC('call_time',e.target.value)} /></div>
-                <div><label className="label">Contact name</label><input className="input" value={callForm.contact_name} onChange={e=>setC('contact_name',e.target.value)} placeholder="Who called?" /></div>
-                <div><label className="label">Contact phone</label><input className="input" value={callForm.contact_phone} onChange={e=>setC('contact_phone',e.target.value)} placeholder="Phone number" /></div>
-                <div className="col-span-2">
-                  <label className="label">Issue reported *</label>
-                  <textarea className="input" rows={3} value={callForm.issue_reported} onChange={e=>setC('issue_reported',e.target.value)} placeholder="Describe what the customer reported..." />
-                </div>
-                <div className="col-span-2">
-                  <label className="label">Action taken / advice given</label>
-                  <textarea className="input" rows={3} value={callForm.action_taken} onChange={e=>setC('action_taken',e.target.value)} placeholder="What did you advise or action?" />
-                </div>
+                <div><label className="label">Contact name</label><input className="input" value={callForm.contact_name} onChange={e=>setC('contact_name',e.target.value)} /></div>
+                <div><label className="label">Contact phone</label><input className="input" value={callForm.contact_phone} onChange={e=>setC('contact_phone',e.target.value)} /></div>
+                <div className="col-span-2"><label className="label">Issue reported *</label><textarea className="input" rows={3} value={callForm.issue_reported} onChange={e=>setC('issue_reported',e.target.value)} /></div>
+                <div className="col-span-2"><label className="label">Action taken</label><textarea className="input" rows={3} value={callForm.action_taken} onChange={e=>setC('action_taken',e.target.value)} /></div>
                 <div>
                   <label className="label">Outcome</label>
                   <select className="input" value={callForm.outcome} onChange={e=>setC('outcome',e.target.value)}>
@@ -351,10 +526,6 @@ export default function InstrumentDetailPage() {
                   </select>
                 </div>
                 <div><label className="label">Follow-up date</label><input className="input" type="date" value={callForm.follow_up_date} onChange={e=>setC('follow_up_date',e.target.value)} /></div>
-                <div className="col-span-2">
-                  <label className="label">Follow-up notes</label>
-                  <input className="input" value={callForm.follow_up_notes} onChange={e=>setC('follow_up_notes',e.target.value)} placeholder="Any follow-up notes..." />
-                </div>
               </div>
               <div className="flex gap-3 mt-4">
                 <button onClick={saveCall} disabled={saving} className="btn-primary">{saving?'Saving...':'Save call log'}</button>
@@ -362,7 +533,6 @@ export default function InstrumentDetailPage() {
               </div>
             </div>
           )}
-
           {calls.length===0 && !showCallForm ? (
             <div className="card p-8 text-center text-gray-400 text-sm">No calls logged for this instrument yet.</div>
           ) : (
@@ -380,13 +550,11 @@ export default function InstrumentDetailPage() {
                       <span>{call.call_date ? format(parseISO(call.call_date),'dd MMM yyyy') : '—'}</span>
                       {call.call_time && <><span>·</span><span>{call.call_time}</span></>}
                       {call.contact_name && <><span>·</span><span>From: {call.contact_name}</span></>}
-                      {call.contact_phone && <><span>·</span><span>{call.contact_phone}</span></>}
                       <span>·</span><span>Logged by: {call.logged_by?.full_name??'—'}</span>
                     </div>
                     <div className="mt-2">
                       <p className="text-sm text-gray-800"><span className="text-xs text-gray-400 font-medium">Issue: </span>{call.issue_reported}</p>
                       {call.action_taken && <p className="text-sm text-gray-600 mt-1"><span className="text-xs text-gray-400 font-medium">Action: </span>{call.action_taken}</p>}
-                      {call.follow_up_notes && <p className="text-sm text-gray-500 mt-1 italic"><span className="text-xs text-gray-400 font-medium">Follow-up: </span>{call.follow_up_notes}</p>}
                       {call.follow_up_date && <p className="text-xs text-purple-600 mt-1 font-medium">Follow-up due: {format(parseISO(call.follow_up_date),'dd MMM yyyy')}</p>}
                     </div>
                   </div>
