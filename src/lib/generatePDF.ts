@@ -261,13 +261,13 @@ export function generateReportPDF(report: ReportData): jsPDF {
   doc.rect(0, 34, W, 2, 'F')
 
   // EiUK Logo box
+  // EiUK Logo box
+  doc.setFillColor(20, 20, 20)
   doc.setDrawColor(...C.green)
-  doc.setLineWidth(1.5)
-  doc.roundedRect(12, 6, 26, 22, 3, 3, 'S')
-  setFont('bold', 11, C.green)
-  doc.text('Ei', 16, 16)
-  setFont('bold', 11, C.green)
-  doc.text('UK', 20, 24)
+  doc.setLineWidth(2)
+  doc.roundedRect(10, 5, 32, 24, 4, 4, 'FD')
+  setFont('bold', 15, C.green)
+  doc.text('EiUK', 26, 19, { align: 'center' })
 
   // Company name
   setFont('bold', 13, C.white)
