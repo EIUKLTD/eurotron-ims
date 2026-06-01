@@ -80,6 +80,7 @@ export default function EditReportPage() {
   const [standards, setStandards]     = useState<any[]>([])
   const [partsLib, setPartsLib]       = useState<any[]>([])
   const [faultTypes, setFaultTypes]   = useState<any[]>([])
+  const [templates, setTemplates]     = useState<any[]>([])
   const [profile, setProfile]         = useState<any>(null)
   const [selInstrument, setSelInstrument] = useState<any>(null)
   const [selCustomer, setSelCustomer] = useState<any>(null)
@@ -112,18 +113,22 @@ export default function EditReportPage() {
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
-      const [{ data: prof }, { data: stds }, { data: parts }, { data: faults }, { data: report }] = await Promise.all([
+      const [{ data: prof }, { data: stds }, { data: parts }, { data: faults }, { data: tmpls }, { data: report }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('reference_standards').select('*').eq('active', true).order('description'),
         supabase.from('parts_library').select('*').eq('active', true).order('description'),
         supabase.from('fault_types').select('*').eq('active', true).order('sort_order'),
-        supabase.from('service_reports').select('*, instrument:instruments(*, customer:customers(*), site:sites(*)), customer:customers(*), calibration_records(*), report_parts(*), report_standards(*)').eq('id', id).single(),
+        supabase.from('cal_templates').select('*').eq('active', true).order('name'),
+        supabase.from('service_reports').select(`*, 
+          instrument:instruments(*, customer:customers(*), site:sites(*)), 
+          customer:customers(*), 
+          calibration_records(*), 
+          report_parts(*), 
+          report_standards(*)`).eq('id', id).single(),
       ])
 
-      setProfile(prof)
-      setStandards(stds || [])
-      setPartsLib(parts || [])
-      setFaultTypes(faults || [])
+      setProfile(prof); setStandards(stds || []); setPartsLib(parts || [])
+      setFaultTypes(faults || []); setTemplates(tmpls || [])
 
       if (report) {
         setSelInstrument(report.instrument)
@@ -142,28 +147,41 @@ export default function EditReportPage() {
         setSageNumber(report.sage_number || '')
         setSelectedFaults(report.fault_codes || [])
 
-        // Load calibration rows
         const calRows = report.calibration_records || []
         const arrival = calRows.filter((r: any) => r.phase === 'arrival').sort((a: any, b: any) => a.sort_order - b.sort_order)
         const asLeft  = calRows.filter((r: any) => r.phase === 'as_left').sort((a: any, b: any) => a.sort_order - b.sort_order)
 
-        setArrivalRows(arrival.map((r: any) => ({
-          id: uid(), parameter: r.parameter || '', gas: '', nominal_type: 'fixed' as const,
-          nominal: r.nominal || '', unit: '', tolerance_type: 'fixed_abs' as const,
-          tolerance: '', tolerance_unit: '', measured: r.measured || '',
-          error: r.error_value || '', result: r.result || '' as any,
-          tolerance_display: r.tolerance || '', bottle_used: ''
-        })))
+        // Try to match template for proper nominal/tolerance data
+        const tmpl = (tmpls || [])[0]
+        if (tmpl && tmpl.parameters) {
+          const buildRows = (rows: any[]) => rows.map((r: any, i: number) => {
+            const param = tmpl.parameters[i] || {}
+            return {
+              id: uid(), parameter: r.parameter || param.parameter || '',
+              gas: param.gas || '', nominal_type: param.nominal_type || 'fixed',
+              nominal: r.nominal?.split(' ')[0] || param.nominal || '',
+              unit: param.unit || '', tolerance_type: param.tolerance_type || 'fixed_abs',
+              tolerance: param.tolerance || '', tolerance_unit: param.tolerance_unit || '',
+              measured: r.measured || '', error: r.error_value || '',
+              result: r.result || '' as any,
+              tolerance_display: r.tolerance || '', bottle_used: ''
+            }
+          })
+          setArrivalRows(buildRows(arrival))
+          setAsLeftRows(buildRows(asLeft))
+        } else {
+          const buildSimple = (rows: any[]) => rows.map((r: any) => ({
+            id: uid(), parameter: r.parameter || '', gas: '',
+            nominal_type: 'fixed' as const, nominal: r.nominal?.split(' ')[0] || '',
+            unit: '', tolerance_type: 'fixed_abs' as const,
+            tolerance: '', tolerance_unit: '', measured: r.measured || '',
+            error: r.error_value || '', result: r.result || '' as any,
+            tolerance_display: r.tolerance || '', bottle_used: ''
+          }))
+          setArrivalRows(buildSimple(arrival))
+          setAsLeftRows(buildSimple(asLeft))
+        }
 
-        setAsLeftRows(asLeft.map((r: any) => ({
-          id: uid(), parameter: r.parameter || '', gas: '', nominal_type: 'fixed' as const,
-          nominal: r.nominal || '', unit: '', tolerance_type: 'fixed_abs' as const,
-          tolerance: '', tolerance_unit: '', measured: r.measured || '',
-          error: r.error_value || '', result: r.result || '' as any,
-          tolerance_display: r.tolerance || '', bottle_used: ''
-        })))
-
-        // Load parts
         setPartRows((report.report_parts || []).map((p: any) => ({
           id: uid(), description: p.description || '', part_number: p.part_number || '',
           quantity: p.quantity || 1, warranty: p.warranty || '', save_to_library: false
@@ -179,6 +197,7 @@ export default function EditReportPage() {
     const std = standards.find((s: any) => s.id === stdId)
     if (!std || !std.gas_concentrations) return rows
     return rows.map(row => {
+      if (row.nominal_type !== 'from_bottle') return row
       const match = std.gas_concentrations.find((g: any) => g.gas === row.gas)
       if (!match) return row
       const updated = { ...row, nominal: match.concentration, unit: match.unit, bottle_used: stdId }
@@ -188,19 +207,32 @@ export default function EditReportPage() {
   }
 
   function reapplyAllBottles(bottles: SelectedBottle[], rows: CalRow[]): CalRow[] {
-    let result = rows
+    let result = rows.map(r => r.nominal_type === 'from_bottle' ? { ...r, nominal: '', unit: '', bottle_used: '', tolerance_display: '' } : r)
     bottles.forEach(b => { if (b.stdId) result = applyBottleToRows(result, b.stdId) })
     return result
   }
 
-  function handleArrivalBottleChange(uid: string, newStdId: string) {
-    const updated = arrivalBottles.map(b => b.uid === uid ? { ...b, stdId: newStdId } : b)
+  function handleArrivalBottleChange(buid: string, newStdId: string) {
+    const updated = arrivalBottles.map(b => b.uid === buid ? { ...b, stdId: newStdId } : b)
     setArrivalBottles(updated)
     setArrivalRows(prev => reapplyAllBottles(updated, prev))
   }
 
-  function handleAsLeftBottleChange(uid: string, newStdId: string) {
-    const updated = asLeftBottles.map(b => b.uid === uid ? { ...b, stdId: newStdId } : b)
+  function handleAsLeftBottleChange(buid: string, newStdId: string) {
+    const updated = asLeftBottles.map(b => b.uid === buid ? { ...b, stdId: newStdId } : b)
+    setAsLeftBottles(updated)
+    setAsLeftRows(prev => reapplyAllBottles(updated, prev))
+  }
+
+  function addArrivalBottle() { setArrivalBottles(b => [...b, { uid: uid(), stdId: '' }]) }
+  function addAsLeftBottle()  { setAsLeftBottles(b => [...b, { uid: uid(), stdId: '' }]) }
+  function removeArrivalBottle(buid: string) {
+    const updated = arrivalBottles.filter(b => b.uid !== buid)
+    setArrivalBottles(updated)
+    setArrivalRows(prev => reapplyAllBottles(updated, prev))
+  }
+  function removeAsLeftBottle(buid: string) {
+    const updated = asLeftBottles.filter(b => b.uid !== buid)
     setAsLeftBottles(updated)
     setAsLeftRows(prev => reapplyAllBottles(updated, prev))
   }
@@ -230,14 +262,32 @@ export default function EditReportPage() {
   }
 
   function overallResult(): 'pass' | 'fail' | 'na' {
-    const all = [...arrivalRows, ...asLeftRows].filter(r => r.result === 'pass' || r.result === 'fail')
-    if (!all.length) return 'na'
-    return all.some(r => r.result === 'fail') ? 'fail' : 'pass'
+    const asLeftOnly = asLeftRows.filter(r => r.result === 'pass' || r.result === 'fail')
+    if (!asLeftOnly.length) return 'na'
+    return asLeftOnly.some(r => r.result === 'fail') ? 'fail' : 'pass'
+  }
+
+  function handleNext() {
+    // Validate bottle selected before calibration steps
+    if (activeSection === 1) {
+      const hasFromBottle = arrivalRows.some(r => r.nominal_type === 'from_bottle')
+      if (hasFromBottle && !arrivalBottles.some(b => b.stdId)) {
+        alert('Please select a span gas bottle before entering calibration data.')
+        return
+      }
+    }
+    if (activeSection === 2) {
+      const hasFromBottle = asLeftRows.some(r => r.nominal_type === 'from_bottle')
+      if (hasFromBottle && !asLeftBottles.some(b => b.stdId)) {
+        alert('Please select a span gas bottle for As left before continuing.')
+        return
+      }
+    }
+    setActiveSection(s => s + 1)
   }
 
   async function handleSave(saveAsDraft = false) {
     setSaving(true); setSaveMsg('Saving...')
-
     const faultText = selectedFaults.length > 0 ? selectedFaults.join('\n') : ''
     const fullFindings = [faultText, findings].filter(Boolean).join('\n')
 
@@ -256,27 +306,37 @@ export default function EditReportPage() {
 
     if (rErr) { alert('Error: ' + rErr.message); setSaving(false); return }
 
-    // Delete and re-insert calibration records
     await supabase.from('calibration_records').delete().eq('report_id', id)
     const calInserts = [
       ...arrivalRows.filter(r => r.parameter).map((r, i) => ({
         report_id: id, phase: 'arrival', sort_order: i, parameter: r.parameter,
-        nominal: r.nominal || null, tolerance: r.tolerance_display,
-        measured: r.measured || null,
+        nominal: r.nominal ? `${r.nominal} ${r.unit}` : null,
+        tolerance: r.tolerance_display, measured: r.measured || null,
         error_value: r.result === 'not_installed' ? 'Not installed' : r.error,
         result: r.result === 'not_installed' ? null : (r.result || null)
       })),
       ...asLeftRows.filter(r => r.parameter).map((r, i) => ({
         report_id: id, phase: 'as_left', sort_order: i, parameter: r.parameter,
-        nominal: r.nominal || null, tolerance: r.tolerance_display,
-        measured: r.measured || null,
+        nominal: r.nominal ? `${r.nominal} ${r.unit}` : null,
+        tolerance: r.tolerance_display, measured: r.measured || null,
         error_value: r.result === 'not_installed' ? 'Not installed' : r.error,
         result: r.result === 'not_installed' ? null : (r.result || null)
       }))
     ]
     if (calInserts.length) await supabase.from('calibration_records').insert(calInserts)
 
-    // Delete and re-insert parts
+    // Update reference standards
+    await supabase.from('report_standards').delete().eq('report_id', id)
+    const allStdIds = new Set([
+      ...arrivalBottles.filter(b => b.stdId).map(b => b.stdId),
+      ...asLeftBottles.filter(b => b.stdId).map(b => b.stdId)
+    ])
+    const stdInserts = Array.from(allStdIds).map(stdId => {
+      const s = standards.find((s: any) => s.id === stdId)
+      return s ? { report_id: id, standard_id: stdId, description: s.description, serial_number: s.serial_number, certificate_no: s.certificate_no, cal_due_date: s.cal_due_date } : null
+    }).filter(Boolean)
+    if (stdInserts.length) await supabase.from('report_standards').insert(stdInserts)
+
     await supabase.from('report_parts').delete().eq('report_id', id)
     const partInserts = partRows.filter(r => r.description).map(r => ({
       report_id: id, description: r.description,
@@ -284,7 +344,6 @@ export default function EditReportPage() {
     }))
     if (partInserts.length) await supabase.from('report_parts').insert(partInserts)
 
-    // Update instrument dates if completing
     if (!saveAsDraft && selInstrument) {
       await supabase.from('instruments').update({
         last_cal_date: visitDate, last_service_date: visitDate,
@@ -302,6 +361,85 @@ export default function EditReportPage() {
   const sections = ['Visit details', 'Faults found', 'On arrival', 'As left', 'Service notes', 'Parts used', 'Complete']
   const overall = overallResult()
 
+  function BottleSelector({ bottles, onBottleChange, onAdd, onRemove }: {
+    bottles: SelectedBottle[]
+    onBottleChange: (uid: string, stdId: string) => void
+    onAdd: () => void
+    onRemove: (uid: string) => void
+  }) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="label mb-0 font-semibold">Span gas bottle(s) used *</label>
+          <button onClick={onAdd} className="text-xs text-brand-500 hover:underline">+ Add bottle</button>
+        </div>
+        {bottles.map((b, i) => (
+          <div key={b.uid} className="flex gap-2 items-start">
+            <div className="flex-1">
+              <select className={`input ${!b.stdId ? 'border-amber-300 bg-amber-50' : ''}`} value={b.stdId} onChange={e => onBottleChange(b.uid, e.target.value)}>
+                <option value="">⚠ Select bottle {i + 1}...</option>
+                {standards.map((s: any) => (
+                  <option key={s.id} value={s.id}>{s.description} (S/N: {s.serial_number})</option>
+                ))}
+              </select>
+              {b.stdId && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {standards.find((s: any) => s.id === b.stdId)?.gas_concentrations?.map((g: any, gi: number) => (
+                    <span key={gi} className="badge-info font-mono text-xs">{g.gas}: {g.concentration} {g.unit}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            {bottles.length > 1 && (
+              <button onClick={() => onRemove(b.uid)} className="text-red-400 hover:text-red-600 text-sm mt-2">x</button>
+            )}
+          </div>
+        ))}
+        {!bottles.some(b => b.stdId) && (
+          <p className="text-xs text-amber-600">⚠ Please select a bottle to populate the calibration values</p>
+        )}
+      </div>
+    )
+  }
+
+  function CalTable({ rows, onUpdate }: { rows: CalRow[]; onUpdate: (id: string, val: string) => void }) {
+    return (
+      <div className="overflow-x-auto rounded-xl border border-gray-200">
+        <table className="w-full text-xs" style={{ minWidth: 500 }}>
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-2 text-left">Parameter</th>
+              <th className="px-3 py-2 text-left">Nominal</th>
+              <th className="px-3 py-2 text-left">Tolerance</th>
+              <th className="px-3 py-2 text-left">Measured</th>
+              <th className="px-3 py-2 text-left">Error</th>
+              <th className="px-3 py-2 text-left">Result</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map(row => (
+              <tr key={row.id} className={row.result === 'not_installed' ? 'bg-gray-50 opacity-60' : ''}>
+                <td className="px-3 py-2 font-medium text-gray-800">{row.parameter}</td>
+                <td className="px-3 py-2 font-mono text-blue-600 text-xs">
+                  {row.nominal ? `${row.nominal} ${row.unit}` : <span className="text-amber-500 italic">select bottle</span>}
+                </td>
+                <td className="px-3 py-2 font-mono text-green-700 text-xs">{row.tolerance_display || '-'}</td>
+                <td className="px-3 py-2"><MeasuredInput row={row} onUpdate={onUpdate} /></td>
+                <td className="px-3 py-2 font-mono text-gray-500 text-xs">{row.result === 'not_installed' ? '-' : row.error || '-'}</td>
+                <td className="px-3 py-2">
+                  {row.result === 'not_installed' ? <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500 italic">Not installed</span>
+                   : row.result === 'pass' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Pass</span>
+                   : row.result === 'fail' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Fail</span>
+                   : <span className="text-gray-300">-</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
   if (loading) return <div className="p-8 text-gray-400 text-sm">Loading report...</div>
 
   return (
@@ -309,9 +447,9 @@ export default function EditReportPage() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <div className="text-xs text-gray-400 mb-1">
-            <a href={`/dashboard/reports/${id}`} className="hover:text-brand-500">Report</a> / Edit draft
+            <a href={`/dashboard/reports/${id}`} className="hover:text-brand-500">Report</a> / Edit
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">Edit draft report</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Edit report</h1>
           <p className="text-gray-400 text-xs mt-0.5">{selInstrument?.name} · {selCustomer?.name}</p>
         </div>
         <div className="text-right">
@@ -360,7 +498,7 @@ export default function EditReportPage() {
           </div>
           {selectedFaults.length > 0 && (
             <div className="bg-red-50 border border-red-100 rounded-xl p-3">
-              <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} selected:</p>
+              <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} selected</p>
               <div className="flex flex-wrap gap-1">
                 {selectedFaults.map(f => <span key={f} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{f}</span>)}
               </div>
@@ -389,73 +527,24 @@ export default function EditReportPage() {
 
       {/* Section 2: On arrival */}
       {activeSection === 2 && (
-        <div className="space-y-3">
-          <h2 className="font-semibold text-gray-800 text-sm">On arrival (as found)</h2>
-          <div className="overflow-x-auto rounded-xl border border-gray-200">
-            <table className="w-full text-xs" style={{ minWidth: 400 }}>
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider">
-                  <th className="px-3 py-2 text-left">Parameter</th>
-                  <th className="px-3 py-2 text-left">Nominal</th>
-                  <th className="px-3 py-2 text-left">Tolerance</th>
-                  <th className="px-3 py-2 text-left">Measured</th>
-                  <th className="px-3 py-2 text-left">Result</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {arrivalRows.map(row => (
-                  <tr key={row.id}>
-                    <td className="px-3 py-2 font-medium text-gray-800">{row.parameter}</td>
-                    <td className="px-3 py-2 font-mono text-blue-600 text-xs">{row.nominal || '-'}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">{row.tolerance_display || '-'}</td>
-                    <td className="px-3 py-2"><MeasuredInput row={row} onUpdate={updateArrivalMeasured} /></td>
-                    <td className="px-3 py-2">
-                      {row.result === 'not_installed' ? <span className="text-xs text-gray-400 italic">Not installed</span>
-                       : row.result === 'pass' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Pass</span>
-                       : row.result === 'fail' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Fail</span>
-                       : <span className="text-gray-300">-</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-4">
+          <div><h2 className="font-semibold text-gray-800 text-sm">On arrival (as found)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
+          <BottleSelector bottles={arrivalBottles} onBottleChange={handleArrivalBottleChange} onAdd={addArrivalBottle} onRemove={removeArrivalBottle} />
+          <CalTable rows={arrivalRows} onUpdate={updateArrivalMeasured} />
         </div>
       )}
 
       {/* Section 3: As left */}
       {activeSection === 3 && (
-        <div className="space-y-3">
-          <h2 className="font-semibold text-gray-800 text-sm">As left (after service)</h2>
-          <div className="overflow-x-auto rounded-xl border border-gray-200">
-            <table className="w-full text-xs" style={{ minWidth: 400 }}>
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider">
-                  <th className="px-3 py-2 text-left">Parameter</th>
-                  <th className="px-3 py-2 text-left">Nominal</th>
-                  <th className="px-3 py-2 text-left">Tolerance</th>
-                  <th className="px-3 py-2 text-left">Measured</th>
-                  <th className="px-3 py-2 text-left">Result</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {asLeftRows.map(row => (
-                  <tr key={row.id}>
-                    <td className="px-3 py-2 font-medium text-gray-800">{row.parameter}</td>
-                    <td className="px-3 py-2 font-mono text-blue-600 text-xs">{row.nominal || '-'}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">{row.tolerance_display || '-'}</td>
-                    <td className="px-3 py-2"><MeasuredInput row={row} onUpdate={updateAsLeftMeasured} /></td>
-                    <td className="px-3 py-2">
-                      {row.result === 'not_installed' ? <span className="text-xs text-gray-400 italic">Not installed</span>
-                       : row.result === 'pass' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Pass</span>
-                       : row.result === 'fail' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Fail</span>
-                       : <span className="text-gray-300">-</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-4">
+          <div><h2 className="font-semibold text-gray-800 text-sm">As left (after service)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
+          <BottleSelector bottles={asLeftBottles} onBottleChange={handleAsLeftBottleChange} onAdd={addAsLeftBottle} onRemove={removeAsLeftBottle} />
+          <CalTable rows={asLeftRows} onUpdate={updateAsLeftMeasured} />
+          {asLeftRows.some(r => r.result === 'pass' || r.result === 'fail') && (
+            <div className={`rounded-xl px-4 py-3 text-sm font-medium text-center ${overall === 'pass' ? 'bg-green-50 text-green-700' : overall === 'fail' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-500'}`}>
+              {overall === 'pass' ? 'Overall result: PASS ✓' : overall === 'fail' ? 'Overall result: FAIL ✗' : 'Overall result pending'}
+            </div>
+          )}
         </div>
       )}
 
@@ -524,7 +613,7 @@ export default function EditReportPage() {
             <div className="flex justify-between"><span className="text-gray-500">Date</span><span className="font-medium">{visitDate}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Result</span>
               <span className={`font-bold ${overall === 'pass' ? 'text-green-600' : overall === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
-                {overall === 'pass' ? 'PASS' : overall === 'fail' ? 'FAIL' : '-'}
+                {overall === 'pass' ? 'PASS ✓' : overall === 'fail' ? 'FAIL ✗' : '-'}
               </span>
             </div>
             {selectedFaults.length > 0 && (
@@ -548,7 +637,7 @@ export default function EditReportPage() {
 
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-4 py-3 flex gap-3">
         {activeSection > 0 && <button onClick={() => setActiveSection(s => s - 1)} className="btn-secondary flex-1">Back</button>}
-        {activeSection < sections.length - 1 && <button onClick={() => setActiveSection(s => s + 1)} className="btn-primary flex-1">Next</button>}
+        {activeSection < sections.length - 1 && <button onClick={handleNext} className="btn-primary flex-1">Next</button>}
       </div>
     </div>
   )
