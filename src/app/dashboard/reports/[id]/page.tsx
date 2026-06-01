@@ -110,6 +110,16 @@ export default function ReportDetailPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!confirm('Delete this report? This cannot be undone.')) return
+    const supabase2 = createClient()
+    await supabase2.from('calibration_records').delete().eq('report_id', id)
+    await supabase2.from('report_parts').delete().eq('report_id', id)
+    await supabase2.from('report_standards').delete().eq('report_id', id)
+    await supabase2.from('service_reports').delete().eq('id', id)
+    window.location.href = '/dashboard/reports'
+  }
+
   function handleQuickEmail() {
     if (!report) return
     if (!report.customer?.contact_email) { showToast('No customer email on file'); return }
@@ -180,6 +190,10 @@ export default function ReportDetailPage() {
           </div>
         )}
         {progress && <div className="mt-2 text-xs text-brand-600 bg-brand-50 rounded-lg px-3 py-2">{progress}</div>}
+        <button onClick={handleDelete}
+          className="w-full py-2 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-500 text-xs font-medium flex items-center justify-center gap-1.5 mt-2">
+          Delete report
+        </button>
         {!report.customer?.contact_email && (
           <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">No customer email on file.</p>
         )}
