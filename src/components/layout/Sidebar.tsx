@@ -9,6 +9,7 @@ import clsx from 'clsx'
 const navItems = [
   { href: '/dashboard',              label: 'Dashboard',   icon: '▦' },
   { href: '/dashboard/instruments',  label: 'Instruments', icon: '⊙' },
+  { href: '/dashboard/pressure', label: 'Pressure Certs', icon: '⊕' },
   { href: '/dashboard/customers',    label: 'Customers',   icon: '⊞' },
   { href: '/dashboard/reports',      label: 'Reports',     icon: '☰' },
   { href: '/dashboard/alerts',       label: 'Cal Alerts',  icon: '⚑' },
