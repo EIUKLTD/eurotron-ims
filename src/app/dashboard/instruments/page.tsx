@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import Link from 'next/link'
 import { format, differenceInDays, parseISO } from 'date-fns'
+import { useSearchParams } from 'next/navigation'
 
 function calBadge(date:string|null) {
   if (!date) return <span className="badge-gray">No date</span>
@@ -23,18 +24,29 @@ export default function InstrumentsPage() {
   const [filtered, setFiltered]       = useState<any[]>([])
   const [search, setSearch]           = useState('')
   const [loading, setLoading]         = useState(true)
+  const [customerName, setCustomerName] = useState('')
+  const searchParams = useSearchParams()
+  const customerFilter = searchParams.get('customer')
   const supabase = createClient()
 
   useEffect(() => {
-    supabase.from('instruments')
+    let query = supabase.from('instruments')
       .select('*, customer:customers(id,name), site:sites(id,name)')
       .order('name')
-      .then(({ data }) => {
-        setInstruments(data||[])
-        setFiltered(data||[])
-        setLoading(false)
-      })
-  }, [])
+
+    if (customerFilter) {
+      query = query.eq('customer_id', customerFilter)
+    }
+
+    query.then(({ data }) => {
+      setInstruments(data||[])
+      setFiltered(data||[])
+      if (data && data.length > 0 && customerFilter) {
+        setCustomerName(data[0].customer?.name || '')
+      }
+      setLoading(false)
+    })
+  }, [customerFilter])
 
   useEffect(() => {
     const q = search.toLowerCase()
@@ -53,10 +65,22 @@ export default function InstrumentsPage() {
     <div className="p-6 max-w-7xl">
       <div className="flex items-center justify-between mb-6">
         <div>
+          {customerFilter && (
+            <div className="text-xs text-gray-400 mb-1">
+              <Link href="/dashboard/customers" className="hover:text-brand-500">Customers</Link> / {customerName}
+            </div>
+          )}
           <h1 className="text-2xl font-semibold text-gray-900">Instruments</h1>
-          <p className="text-gray-500 text-sm mt-1">{filtered.length} gas analysers</p>
+          <p className="text-gray-500 text-sm mt-1">
+            {customerFilter ? `${filtered.length} instruments for ${customerName}` : `${filtered.length} gas analysers`}
+          </p>
         </div>
-        <Link href="/dashboard/instruments/new" className="btn-primary">+ Add instrument</Link>
+        <div className="flex gap-2">
+          {customerFilter && (
+            <Link href="/dashboard/instruments" className="btn-secondary">View all instruments</Link>
+          )}
+          <Link href="/dashboard/instruments/new" className="btn-primary">+ Add instrument</Link>
+        </div>
       </div>
 
       <div className="mb-4">
@@ -69,7 +93,7 @@ export default function InstrumentsPage() {
           <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
         ) : filtered.length===0 ? (
           <div className="p-8 text-center text-gray-400 text-sm">
-            {search?'No instruments match your search.':'No instruments yet. Add your first one!'}
+            {search ? 'No instruments match your search.' : customerFilter ? `No instruments found for ${customerName}.` : 'No instruments yet. Add your first one!'}
           </div>
         ) : (
           <div className="overflow-x-auto">
