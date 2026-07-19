@@ -29,15 +29,11 @@ interface PartRow {
   save_to_library: boolean
 }
 
-interface SelectedBottle {
-  uid: string
-  stdId: string
-}
+interface SelectedBottle { uid: string; stdId: string }
+interface ChecklistItem { id: string; category: string; item: string; required: boolean; checked: boolean; notes: string }
 
 function uid() { return Math.random().toString(36).slice(2) }
-function emptyPart(): PartRow {
-  return { id: uid(), description: '', part_number: '', quantity: 1, warranty: '', save_to_library: false }
-}
+function emptyPart(): PartRow { return { id: uid(), description: '', part_number: '', quantity: 1, warranty: '', save_to_library: false } }
 
 function calcToleranceDisplay(row: CalRow): string {
   if (row.tolerance_type === 'fixed_abs') return `+/-${row.tolerance} ${row.tolerance_unit}`
@@ -66,51 +62,6 @@ function calcError(row: CalRow): { error: string; result: 'pass' | 'fail' | 'not
   return { error, result }
 }
 
-function SigCanvas({ label, canvasRef, onSign }: { label: string; canvasRef: React.RefObject<HTMLCanvasElement>; onSign: () => void }) {
-  const [signed, setSigned] = useState(false)
-  const drawing = useRef(false)
-  const last = useRef<[number, number]>([0, 0])
-  function getPos(e: React.TouchEvent | React.MouseEvent, canvas: HTMLCanvasElement): [number, number] {
-    const r = canvas.getBoundingClientRect()
-    const src = (e as React.TouchEvent).touches?.[0] ?? (e as React.MouseEvent)
-    return [src.clientX - r.left, src.clientY - r.top]
-  }
-  function setup(canvas: HTMLCanvasElement) {
-    const box = canvas.parentElement!
-    const dpr = window.devicePixelRatio || 1
-    const r = box.getBoundingClientRect()
-    canvas.width = r.width * dpr; canvas.height = r.height * dpr
-    canvas.style.width = r.width + 'px'; canvas.style.height = r.height + 'px'
-    canvas.getContext('2d')!.scale(dpr, dpr)
-  }
-  function start(e: React.TouchEvent | React.MouseEvent) {
-    e.preventDefault(); const c = canvasRef.current!
-    drawing.current = true; last.current = getPos(e, c); setSigned(true); onSign()
-  }
-  function move(e: React.TouchEvent | React.MouseEvent) {
-    if (!drawing.current) return; e.preventDefault()
-    const c = canvasRef.current!; const [x, y] = getPos(e, c)
-    const ctx = c.getContext('2d')!
-    ctx.beginPath(); ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.8; ctx.lineCap = 'round'
-    ctx.moveTo(last.current[0], last.current[1]); ctx.lineTo(x, y); ctx.stroke()
-    last.current = [x, y]
-  }
-  function end() { drawing.current = false }
-  function clear() { const c = canvasRef.current!; c.getContext('2d')!.clearRect(0, 0, c.width, c.height); setSigned(false) }
-  return (
-    <div>
-      <div className="relative border border-gray-200 rounded-xl bg-gray-50 overflow-hidden cursor-crosshair" style={{ height: 80 }}
-        ref={el => { if (el && canvasRef.current) setup(canvasRef.current) }}>
-        {!signed && <span className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm pointer-events-none">{label}</span>}
-        <canvas ref={canvasRef} className="absolute inset-0 touch-none"
-          onMouseDown={start} onMouseMove={move} onMouseUp={end}
-          onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
-      </div>
-      {signed && <button onClick={clear} className="text-xs text-gray-400 hover:text-red-500 mt-1">Clear</button>}
-    </div>
-  )
-}
-
 function MeasuredInput({ row, onUpdate }: { row: CalRow; onUpdate: (id: string, val: string) => void }) {
   return (
     <input type="number" step="any"
@@ -132,11 +83,13 @@ export default function NewReportPage() {
   const [partsLib, setPartsLib]       = useState<any[]>([])
   const [templates, setTemplates]     = useState<any[]>([])
   const [faultTypes, setFaultTypes]   = useState<any[]>([])
+  const [commTemplates, setCommTemplates] = useState<any[]>([])
   const [profile, setProfile]         = useState<any>(null)
   const [selInstrument, setSelInstrument] = useState<any>(null)
   const [selCustomer, setSelCustomer] = useState<any>(null)
 
   const today = new Date()
+  const [visitType, setVisitType]     = useState<'service'|'commissioning'|'calibration'|'repair'>('service')
   const [instrumentId, setInstrumentId] = useState(preselectedId ?? '')
   const [visitDate, setVisitDate]     = useState(today.toISOString().split('T')[0])
   const [visitTime, setVisitTime]     = useState(today.toTimeString().slice(0, 5))
@@ -151,6 +104,11 @@ export default function NewReportPage() {
   const [custPrintName, setCustPrintName] = useState('')
   const [sageNumber, setSageNumber]   = useState('')
   const [selectedFaults, setSelectedFaults] = useState<string[]>([])
+  const [checklist, setChecklist]     = useState<ChecklistItem[]>([])
+  const [commNotes, setCommNotes]     = useState('')
+  const [photos, setPhotos]           = useState<File[]>([])
+  const [photoUrls, setPhotoUrls]     = useState<string[]>([])
+  const [uploadingPhotos, setUploadingPhotos] = useState(false)
 
   const [arrivalRows, setArrivalRows] = useState<CalRow[]>([])
   const [asLeftRows, setAsLeftRows]   = useState<CalRow[]>([])
@@ -163,24 +121,21 @@ export default function NewReportPage() {
   const [saving, setSaving]           = useState(false)
   const [saveMsg, setSaveMsg]         = useState('')
 
-  const engSigRef  = useRef<HTMLCanvasElement>(null)
-  const custSigRef = useRef<HTMLCanvasElement>(null)
-  const [engSigned, setEngSigned]   = useState(false)
-  const [custSigned, setCustSigned] = useState(false)
-
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
-      const [{ data: prof }, { data: insts }, { data: stds }, { data: parts }, { data: tmpls }, { data: faults }] = await Promise.all([
+      const [{ data: prof }, { data: insts }, { data: stds }, { data: parts }, { data: tmpls }, { data: faults }, { data: commTmpls }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('instruments').select('*, customer:customers(*), site:sites(*)').eq('status', 'active').order('name'),
         supabase.from('reference_standards').select('*').eq('active', true).order('description'),
         supabase.from('parts_library').select('*').eq('active', true).order('description'),
         supabase.from('cal_templates').select('*').eq('active', true).order('name'),
         supabase.from('fault_types').select('*').eq('active', true).order('sort_order'),
+        supabase.from('commissioning_templates').select('*').eq('active', true).order('name'),
       ])
       setProfile(prof); setInstruments(insts || []); setStandards(stds || [])
       setPartsLib(parts || []); setTemplates(tmpls || []); setFaultTypes(faults || [])
+      setCommTemplates(commTmpls || [])
       if (preselectedId && insts) {
         const inst = insts.find((i: any) => i.id === preselectedId)
         if (inst) doSelectInstrument(inst, tmpls || [])
@@ -188,6 +143,13 @@ export default function NewReportPage() {
     }
     load()
   }, [])
+
+  function loadCommTemplate(templateId: string) {
+    const tmpl = commTemplates.find(t => t.id === templateId)
+    if (tmpl) {
+      setChecklist((tmpl.items || []).map((item: any) => ({ ...item, checked: false, notes: '' })))
+    }
+  }
 
   function doSelectInstrument(inst: any, tmpls?: any[]) {
     setSelInstrument(inst); setInstrumentId(inst.id); setFirmware(inst.firmware_version ?? '')
@@ -236,30 +198,27 @@ export default function NewReportPage() {
     return resetRows
   }
 
-  function handleArrivalBottleChange(uid: string, newStdId: string) {
-    const updated = arrivalBottles.map(b => b.uid === uid ? { ...b, stdId: newStdId } : b)
+  function handleArrivalBottleChange(buid: string, newStdId: string) {
+    const updated = arrivalBottles.map(b => b.uid === buid ? { ...b, stdId: newStdId } : b)
     setArrivalBottles(updated)
     setArrivalRows(prev => reapplyAllBottles(updated, prev))
   }
 
-  function handleAsLeftBottleChange(uid: string, newStdId: string) {
-    const updated = asLeftBottles.map(b => b.uid === uid ? { ...b, stdId: newStdId } : b)
+  function handleAsLeftBottleChange(buid: string, newStdId: string) {
+    const updated = asLeftBottles.map(b => b.uid === buid ? { ...b, stdId: newStdId } : b)
     setAsLeftBottles(updated)
     setAsLeftRows(prev => reapplyAllBottles(updated, prev))
   }
 
   function addArrivalBottle() { setArrivalBottles(b => [...b, { uid: uid(), stdId: '' }]) }
   function addAsLeftBottle()  { setAsLeftBottles(b => [...b, { uid: uid(), stdId: '' }]) }
-
   function removeArrivalBottle(buid: string) {
     const updated = arrivalBottles.filter(b => b.uid !== buid)
-    setArrivalBottles(updated)
-    setArrivalRows(prev => reapplyAllBottles(updated, prev))
+    setArrivalBottles(updated); setArrivalRows(prev => reapplyAllBottles(updated, prev))
   }
   function removeAsLeftBottle(buid: string) {
     const updated = asLeftBottles.filter(b => b.uid !== buid)
-    setAsLeftBottles(updated)
-    setAsLeftRows(prev => reapplyAllBottles(updated, prev))
+    setAsLeftBottles(updated); setAsLeftRows(prev => reapplyAllBottles(updated, prev))
   }
 
   const updateArrivalMeasured = useCallback((id: string, val: string) => {
@@ -283,11 +242,15 @@ export default function NewReportPage() {
   }, [])
 
   function toggleFault(description: string) {
-    setSelectedFaults(prev =>
-      prev.includes(description)
-        ? prev.filter(f => f !== description)
-        : [...prev, description]
-    )
+    setSelectedFaults(prev => prev.includes(description) ? prev.filter(f => f !== description) : [...prev, description])
+  }
+
+  function toggleChecklistItem(id: string) {
+    setChecklist(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
+  }
+
+  function updateChecklistNotes(id: string, notes: string) {
+    setChecklist(prev => prev.map(item => item.id === id ? { ...item, notes } : item))
   }
 
   function overallResult(): 'pass' | 'fail' | 'na' {
@@ -296,11 +259,23 @@ export default function NewReportPage() {
     return asLeftOnly.some(r => r.result === 'fail') ? 'fail' : 'pass'
   }
 
+  async function uploadPhotos(reportId: string): Promise<string[]> {
+    const urls: string[] = []
+    for (const photo of photos) {
+      const path = `${reportId}/${uid()}-${photo.name}`
+      const { error } = await supabase.storage.from('reports').upload(path, photo, { upsert: true })
+      if (!error) {
+        const { data: { publicUrl } } = supabase.storage.from('reports').getPublicUrl(path)
+        urls.push(publicUrl)
+      }
+    }
+    return urls
+  }
+
   async function handleSave(sendEmail = false, saveAsDraft = false) {
     if (!instrumentId) { alert('Please select an instrument.'); return }
     setSaving(true); setSaveMsg('Saving report...')
 
-    // Build findings from selected faults + free text
     const faultText = selectedFaults.length > 0 ? selectedFaults.join('\n') : ''
     const fullFindings = [faultText, findings].filter(Boolean).join('\n')
 
@@ -312,11 +287,25 @@ export default function NewReportPage() {
       work_carried_out: workDone || null, recommendations: recommendations || null,
       labour_hours: labourHours ? parseFloat(labourHours) : null,
       overall_result: overallResult(), customer_printed_name: custPrintName || null,
-      sage_number: sageNumber || null,
-      fault_codes: selectedFaults,
+      sage_number: sageNumber || null, fault_codes: selectedFaults,
+      visit_type: visitType,
+      commissioning_checklist: checklist.length > 0 ? checklist : null,
+      commissioning_notes: commNotes || null,
       status: saveAsDraft ? 'draft' : 'complete',
     }).select().single()
+
     if (rErr || !report) { alert('Error: ' + rErr?.message); setSaving(false); return }
+
+    // Upload photos
+    if (photos.length > 0) {
+      setSaveMsg('Uploading photos...')
+      setUploadingPhotos(true)
+      const urls = await uploadPhotos(report.id)
+      if (urls.length > 0) {
+        await supabase.from('service_reports').update({ photo_urls: urls }).eq('id', report.id)
+      }
+      setUploadingPhotos(false)
+    }
 
     setSaveMsg('Saving calibration records...')
     const calInserts = [
@@ -335,10 +324,7 @@ export default function NewReportPage() {
         result: r.result === 'not_installed' ? null : (r.result || null)
       }))
     ]
-    if (calInserts.length) {
-      const { error: calError } = await supabase.from('calibration_records').insert(calInserts)
-      if (calError) { alert('Cal save error: ' + calError.message); setSaving(false); return }
-    }
+    if (calInserts.length) await supabase.from('calibration_records').insert(calInserts)
 
     const allStdIds = new Set([
       ...arrivalBottles.filter(b => b.stdId).map(b => b.stdId),
@@ -371,34 +357,26 @@ export default function NewReportPage() {
       }).eq('id', instrumentId)
     }
 
-    setSaveMsg(saveAsDraft ? 'Draft saved!' : 'Report saved!')
-    if (!saveAsDraft && sendEmail && customerEmail) {
-      const subj = `Service & Calibration Report ${report.report_number} - ${selCustomer?.name ?? ''} - ${visitDate}`
-      const body = `Dear ${selCustomer?.name ?? 'Customer'},\n\nPlease find attached the service and calibration report for the visit on ${visitDate}.\n\nReport: ${report.report_number}\nInstrument: ${selInstrument?.name ?? ''}\nResult: ${overallResult().toUpperCase()}\n\nKind regards,\n${profile?.full_name ?? 'Eurotron Instruments (UK) Ltd'}\nEurotron Instruments (UK) Ltd`
-      window.location.href = `mailto:${encodeURIComponent(customerEmail)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`
-      await supabase.from('service_reports').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', report.id)
-    }
+    setSaveMsg('Report saved!')
     setSaving(false)
     router.push(`/dashboard/reports/${report.id}`)
   }
 
   function BottleSelector({ bottles, onBottleChange, onAdd, onRemove }: {
-    bottles: SelectedBottle[]
-    onBottleChange: (uid: string, stdId: string) => void
-    onAdd: () => void
-    onRemove: (uid: string) => void
+    bottles: SelectedBottle[]; onBottleChange: (uid: string, stdId: string) => void
+    onAdd: () => void; onRemove: (uid: string) => void
   }) {
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="label mb-0 font-semibold">Span gas bottle(s) used</label>
+          <label className="label mb-0 font-semibold">Span gas bottle(s) used *</label>
           <button onClick={onAdd} className="text-xs text-brand-500 hover:underline">+ Add bottle</button>
         </div>
         {bottles.map((b, i) => (
           <div key={b.uid} className="flex gap-2 items-start">
             <div className="flex-1">
-              <select className="input" value={b.stdId} onChange={e => onBottleChange(b.uid, e.target.value)}>
-                <option value="">Select bottle {i + 1}...</option>
+              <select className={`input ${!b.stdId ? 'border-amber-300 bg-amber-50' : ''}`} value={b.stdId} onChange={e => onBottleChange(b.uid, e.target.value)}>
+                <option value="">⚠ Select bottle {i + 1}...</option>
                 {standards.map((s: any) => (
                   <option key={s.id} value={s.id}>{s.description} (S/N: {s.serial_number})</option>
                 ))}
@@ -411,9 +389,7 @@ export default function NewReportPage() {
                 </div>
               )}
             </div>
-            {bottles.length > 1 && (
-              <button onClick={() => onRemove(b.uid)} className="text-red-400 hover:text-red-600 text-sm mt-2">x</button>
-            )}
+            {bottles.length > 1 && <button onClick={() => onRemove(b.uid)} className="text-red-400 hover:text-red-600 text-sm mt-2">x</button>}
           </div>
         ))}
       </div>
@@ -432,52 +408,47 @@ export default function NewReportPage() {
               <th className="px-3 py-2 text-left">Measured</th>
               <th className="px-3 py-2 text-left">Error</th>
               <th className="px-3 py-2 text-left">Result</th>
-              <th className="px-3 py-2 text-left">Bottle</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {rows.map(row => {
-              const bottleStd = row.bottle_used ? standards.find((s: any) => s.id === row.bottle_used) : null
-              return (
-                <tr key={row.id} className={row.result === 'not_installed' ? 'bg-gray-50 opacity-60' : ''}>
-                  <td className="px-3 py-2 font-medium text-gray-800">{row.parameter}</td>
-                  <td className="px-3 py-2 font-mono text-blue-600 text-xs">
-                    {row.nominal ? `${row.nominal} ${row.unit}` : <span className="text-gray-400 italic">select bottle</span>}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-green-700 text-xs">{row.tolerance_display || '-'}</td>
-                  <td className="px-3 py-2"><MeasuredInput row={row} onUpdate={onUpdate} /></td>
-                  <td className="px-3 py-2 font-mono text-gray-500 text-xs">{row.result === 'not_installed' ? '-' : row.error || '-'}</td>
-                  <td className="px-3 py-2">
-                    {row.result === 'not_installed' ? <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500 italic">Not installed</span>
-                     : row.result === 'pass' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Pass</span>
-                     : row.result === 'fail' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Fail</span>
-                     : <span className="text-gray-300">-</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-gray-400">
-                    {row.nominal_type === 'fixed' ? <span className="italic">N/A</span>
-                     : bottleStd ? <span className="font-mono text-xs text-brand-600">{bottleStd.serial_number}</span>
-                     : <span className="italic text-gray-300">-</span>}
-                  </td>
-                </tr>
-              )
-            })}
+            {rows.map(row => (
+              <tr key={row.id} className={row.result === 'not_installed' ? 'bg-gray-50 opacity-60' : ''}>
+                <td className="px-3 py-2 font-medium text-gray-800">{row.parameter}</td>
+                <td className="px-3 py-2 font-mono text-blue-600 text-xs">
+                  {row.nominal ? `${row.nominal} ${row.unit}` : <span className="text-amber-500 italic">select bottle</span>}
+                </td>
+                <td className="px-3 py-2 font-mono text-green-700 text-xs">{row.tolerance_display || '-'}</td>
+                <td className="px-3 py-2"><MeasuredInput row={row} onUpdate={onUpdate} /></td>
+                <td className="px-3 py-2 font-mono text-gray-500 text-xs">{row.result === 'not_installed' ? '-' : row.error || '-'}</td>
+                <td className="px-3 py-2">
+                  {row.result === 'not_installed' ? <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500 italic">Not installed</span>
+                   : row.result === 'pass' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Pass</span>
+                   : row.result === 'fail' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Fail</span>
+                   : <span className="text-gray-300">-</span>}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
     )
   }
 
-  // Group fault types by category
   const faultCategories = [...new Set(faultTypes.map(f => f.category))]
+  const checklistCategories = [...new Set(checklist.map(i => i.category))]
+  const isCommissioning = visitType === 'commissioning'
 
-  const sections = ['Customer & instrument', 'Faults found', 'On arrival (as found)', 'As left (after service)', 'Service notes', 'Parts used', 'Sign-off & send']
+  const sections = isCommissioning
+    ? ['Customer & instrument', 'Faults found', 'Commissioning', 'On arrival', 'As left', 'Service notes', 'Parts used', 'Photos', 'Sign-off']
+    : ['Customer & instrument', 'Faults found', 'On arrival', 'As left', 'Service notes', 'Parts used', 'Photos', 'Sign-off']
+
   const overall = overallResult()
 
   return (
     <div className="p-4 max-w-2xl mx-auto pb-32">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">New service report</h1>
+          <h1 className="text-xl font-semibold text-gray-900">New report</h1>
           <p className="text-gray-400 text-xs mt-0.5">Eurotron Instruments (UK) Ltd</p>
         </div>
         <div className="text-right">
@@ -501,6 +472,25 @@ export default function NewReportPage() {
       {activeSection === 0 && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Customer & instrument</h2>
+
+          {/* Visit type selector */}
+          <div>
+            <label className="label">Visit type</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: 'service', label: '🔧 Service & Calibration', color: 'border-brand-500 bg-brand-50 text-brand-700' },
+                { key: 'commissioning', label: '🆕 Commissioning', color: 'border-green-500 bg-green-50 text-green-700' },
+                { key: 'calibration', label: '📊 Calibration only', color: 'border-blue-500 bg-blue-50 text-blue-700' },
+                { key: 'repair', label: '🛠 Repair only', color: 'border-amber-500 bg-amber-50 text-amber-700' },
+              ].map(vt => (
+                <button key={vt.key} onClick={() => setVisitType(vt.key as any)}
+                  className={`py-2.5 px-3 rounded-xl border-2 text-xs font-medium text-left transition-colors ${visitType === vt.key ? vt.color : 'border-gray-200 bg-white text-gray-500'}`}>
+                  {vt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="label">Instrument *</label>
             <select className="input" value={instrumentId} onChange={e => { const inst = instruments.find(i => i.id === e.target.value); if (inst) doSelectInstrument(inst) }}>
@@ -513,14 +503,6 @@ export default function NewReportPage() {
               <div className="flex justify-between"><span className="text-gray-500">Make / model</span><span className="font-medium">{selInstrument.make} {selInstrument.model}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Last cal</span><span className="font-medium">{selInstrument.last_cal_date ?? '-'}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Next cal due</span><span className="font-medium text-amber-600">{selInstrument.next_cal_date ?? '-'}</span></div>
-            </div>
-          )}
-          {templates.length > 1 && (
-            <div>
-              <label className="label">Calibration template</label>
-              <select className="input" onChange={e => { const t = templates.find(t => t.id === e.target.value); if (t) doLoadTemplate(t) }}>
-                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
@@ -540,30 +522,25 @@ export default function NewReportPage() {
         <div className="space-y-4">
           <div>
             <h2 className="font-semibold text-gray-800 text-sm">Faults found on arrival</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Tick all faults found. These will appear in the findings section.</p>
+            <p className="text-xs text-gray-400 mt-0.5">Tick all faults found.</p>
           </div>
-
           {selectedFaults.length > 0 && (
             <div className="bg-red-50 border border-red-100 rounded-xl p-3">
-              <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} selected:</p>
+              <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} selected</p>
               <div className="flex flex-wrap gap-1">
-                {selectedFaults.map(f => (
-                  <span key={f} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{f}</span>
-                ))}
+                {selectedFaults.map(f => <span key={f} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{f}</span>)}
               </div>
             </div>
           )}
-
           {faultCategories.map(cat => (
             <div key={cat} className="card p-4">
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{cat}</h3>
               <div className="space-y-2">
                 {faultTypes.filter(f => f.category === cat).map(fault => (
-                  <label key={fault.id} className="flex items-center gap-3 cursor-pointer group">
-                    <input type="checkbox"
-                      checked={selectedFaults.includes(fault.description)}
+                  <label key={fault.id} className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={selectedFaults.includes(fault.description)}
                       onChange={() => toggleFault(fault.description)}
-                      className="w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
+                      className="w-4 h-4 rounded border-gray-300 text-brand-500" />
                     <span className={`text-sm ${selectedFaults.includes(fault.description) ? 'text-red-700 font-medium' : 'text-gray-700'}`}>
                       {fault.description}
                     </span>
@@ -572,16 +549,81 @@ export default function NewReportPage() {
               </div>
             </div>
           ))}
-
-          <div>
-            <label className="label">Additional findings (free text)</label>
-            <textarea className="input" rows={3} value={findings} onChange={e => setFindings(e.target.value)} placeholder="Any other observations not in the list above..." />
-          </div>
+          <div><label className="label">Additional findings</label><textarea className="input" rows={3} value={findings} onChange={e => setFindings(e.target.value)} placeholder="Any other observations..." /></div>
         </div>
       )}
 
-      {/* Section 2: On arrival */}
-      {activeSection === 2 && (
+      {/* Commissioning section — only shows if visit type is commissioning */}
+      {isCommissioning && activeSection === 2 && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="font-semibold text-gray-800 text-sm">Commissioning checklist</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Complete all required items before sign-off.</p>
+          </div>
+
+          {checklist.length === 0 && (
+            <div className="space-y-2">
+              <label className="label">Load checklist template</label>
+              <select className="input" onChange={e => loadCommTemplate(e.target.value)}>
+                <option value="">Select template...</option>
+                {commTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {checklist.length > 0 && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-gray-500">
+                  {checklist.filter(i => i.checked).length} / {checklist.length} completed
+                  {checklist.filter(i => i.required && !i.checked).length > 0 && (
+                    <span className="text-red-500 ml-2">· {checklist.filter(i => i.required && !i.checked).length} required items remaining</span>
+                  )}
+                </div>
+                <button onClick={() => setChecklist([])} className="text-xs text-gray-400 hover:underline">Change template</button>
+              </div>
+
+              {checklistCategories.map(cat => (
+                <div key={cat} className="card p-4">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{cat}</h3>
+                  <div className="space-y-3">
+                    {checklist.filter(i => i.category === cat).map(item => (
+                      <div key={item.id}>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input type="checkbox" checked={item.checked}
+                            onChange={() => toggleChecklistItem(item.id)}
+                            className="w-4 h-4 rounded border-gray-300 text-brand-500 mt-0.5" />
+                          <div className="flex-1">
+                            <span className={`text-sm ${item.checked ? 'text-green-700 line-through' : item.required ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>
+                              {item.item}
+                              {item.required && !item.checked && <span className="text-red-400 ml-1">*</span>}
+                            </span>
+                          </div>
+                        </label>
+                        {item.checked && (
+                          <input className="mt-1 ml-7 w-full border border-gray-200 rounded px-2 py-1 text-xs"
+                            placeholder="Add notes (optional)..."
+                            value={item.notes}
+                            onChange={e => updateChecklistNotes(item.id, e.target.value)} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <div>
+                <label className="label">Commissioning notes</label>
+                <textarea className="input" rows={4} value={commNotes} onChange={e => setCommNotes(e.target.value)}
+                  placeholder="General commissioning notes, observations, customer instructions..." />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* On arrival */}
+      {activeSection === (isCommissioning ? 3 : 2) && (
         <div className="space-y-4">
           <div><h2 className="font-semibold text-gray-800 text-sm">On arrival (as found)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
           {arrivalRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
@@ -593,8 +635,8 @@ export default function NewReportPage() {
         </div>
       )}
 
-      {/* Section 3: As left */}
-      {activeSection === 3 && (
+      {/* As left */}
+      {activeSection === (isCommissioning ? 4 : 3) && (
         <div className="space-y-4">
           <div><h2 className="font-semibold text-gray-800 text-sm">As left (after service)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
           {asLeftRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
@@ -605,31 +647,24 @@ export default function NewReportPage() {
           )}
           {[...arrivalRows, ...asLeftRows].some(r => r.result === 'pass' || r.result === 'fail') && (
             <div className={`rounded-xl px-4 py-3 text-sm font-medium text-center ${overall === 'pass' ? 'bg-green-50 text-green-700' : overall === 'fail' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-500'}`}>
-              {overall === 'pass' ? 'Overall result: PASS' : overall === 'fail' ? 'Overall result: FAIL' : 'Overall result pending'}
+              {overall === 'pass' ? 'Overall result: PASS ✓' : overall === 'fail' ? 'Overall result: FAIL ✗' : 'Overall result pending'}
             </div>
           )}
         </div>
       )}
 
-      {/* Section 4: Service notes */}
-      {activeSection === 4 && (
+      {/* Service notes */}
+      {activeSection === (isCommissioning ? 5 : 4) && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Service notes</h2>
-          {selectedFaults.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-xs text-gray-500 mb-1 font-medium">Faults from picker:</p>
-              <p className="text-xs text-gray-700">{selectedFaults.join(', ')}</p>
-            </div>
-          )}
-          <div><label className="label">Additional findings</label><textarea className="input" rows={3} value={findings} onChange={e => setFindings(e.target.value)} placeholder="Any additional observations..." /></div>
           <div><label className="label">Work carried out</label><textarea className="input" rows={4} value={workDone} onChange={e => setWorkDone(e.target.value)} placeholder="Describe actions taken..." /></div>
           <div><label className="label">Recommendations</label><textarea className="input" rows={3} value={recommendations} onChange={e => setRecommendations(e.target.value)} placeholder="Any follow-up actions..." /></div>
           <div><label className="label">Labour time (hours)</label><input className="input" type="number" step="0.5" min="0" value={labourHours} onChange={e => setLabourHours(e.target.value)} style={{ width: 120 }} /></div>
         </div>
       )}
 
-      {/* Section 5: Parts */}
-      {activeSection === 5 && (
+      {/* Parts */}
+      {activeSection === (isCommissioning ? 6 : 5) && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800 text-sm">Parts used</h2>
@@ -643,28 +678,18 @@ export default function NewReportPage() {
               </div>
               <input className="input text-sm mb-3" placeholder="Search parts..." value={partSearch} onChange={e => setPartSearch(e.target.value)} />
               <div className="space-y-1 max-h-56 overflow-y-auto">
-                {partsLib
-                  .filter(p => !partSearch || p.description.toLowerCase().includes(partSearch.toLowerCase()) || (p.part_number && p.part_number.toLowerCase().includes(partSearch.toLowerCase())))
-                  .map((p: any) => (
-                    <div key={p.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                      <div><div className="text-sm text-gray-800">{p.description}</div><div className="text-xs text-gray-400">{p.part_number ?? '-'}</div></div>
-                      <button onClick={() => setPartRows(r => [...r, { ...emptyPart(), description: p.description, part_number: p.part_number ?? '' }])}
-                        className="text-xs text-brand-500 hover:underline ml-4">+ Add</button>
-                    </div>
-                  ))}
+                {partsLib.filter(p => !partSearch || p.description.toLowerCase().includes(partSearch.toLowerCase())).map((p: any) => (
+                  <div key={p.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                    <div><div className="text-sm text-gray-800">{p.description}</div><div className="text-xs text-gray-400">{p.part_number ?? '-'}</div></div>
+                    <button onClick={() => setPartRows(r => [...r, { ...emptyPart(), description: p.description, part_number: p.part_number ?? '' }])}
+                      className="text-xs text-brand-500 hover:underline ml-4">+ Add</button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
           {partRows.length > 0 && (
             <div className="space-y-2">
-              <div className="grid grid-cols-12 gap-1 text-xs text-gray-400 px-1">
-                <span className="col-span-3">Description</span>
-                <span className="col-span-2">Part no.</span>
-                <span className="col-span-1">Qty</span>
-                <span className="col-span-2">Warranty</span>
-                <span className="col-span-3">Save to library</span>
-                <span className="col-span-1"></span>
-              </div>
               {partRows.map(row => (
                 <div key={row.id} className="grid grid-cols-12 gap-1 items-center">
                   <input className="col-span-3 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description" onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
@@ -675,12 +700,8 @@ export default function NewReportPage() {
                     <option value="">Warranty?</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
                   </select>
                   <label className="col-span-3 flex items-center gap-1.5 text-xs cursor-pointer px-1">
-                    <input type="checkbox" checked={row.save_to_library}
-                      onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, save_to_library: e.target.checked }))}
-                      className="rounded" />
-                    <span className={row.save_to_library ? 'text-brand-600 font-medium' : 'text-gray-400'}>
-                      {row.save_to_library ? 'Will save' : 'Save?'}
-                    </span>
+                    <input type="checkbox" checked={row.save_to_library} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, save_to_library: e.target.checked }))} className="rounded" />
+                    <span className={row.save_to_library ? 'text-brand-600 font-medium' : 'text-gray-400'}>{row.save_to_library ? 'Will save' : 'Save?'}</span>
                   </label>
                   <button onClick={() => setPartRows(partRows.filter(r => r.id !== row.id))} className="col-span-1 text-gray-300 hover:text-red-400 text-base text-center">x</button>
                 </div>
@@ -691,26 +712,77 @@ export default function NewReportPage() {
         </div>
       )}
 
-      {/* Section 6: Sign-off */}
-      {activeSection === 6 && (
+      {/* Photos */}
+      {activeSection === (isCommissioning ? 7 : 6) && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="font-semibold text-gray-800 text-sm">Photos</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Add up to 5 photos from your phone.</p>
+          </div>
+          <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center">
+            <input type="file" accept="image/*" multiple capture="environment"
+              className="hidden" id="photo-upload"
+              onChange={e => {
+                const files = Array.from(e.target.files || []).slice(0, 5)
+                setPhotos(files)
+                setPhotoUrls(files.map(f => URL.createObjectURL(f)))
+              }} />
+            <label htmlFor="photo-upload" className="cursor-pointer">
+              <div className="text-3xl mb-2">📷</div>
+              <div className="text-sm text-gray-600 font-medium">Tap to take or select photos</div>
+              <div className="text-xs text-gray-400 mt-1">Max 5 photos · JPG, PNG</div>
+            </label>
+          </div>
+          {photoUrls.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {photoUrls.map((url, i) => (
+                <div key={i} className="relative">
+                  <img src={url} alt={`Photo ${i+1}`} className="w-full h-24 object-cover rounded-lg" />
+                  <button onClick={() => {
+                    setPhotos(p => p.filter((_,idx)=>idx!==i))
+                    setPhotoUrls(u => u.filter((_,idx)=>idx!==i))
+                  }} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">x</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-gray-400">{photos.length}/5 photos selected</p>
+        </div>
+      )}
+
+      {/* Sign-off */}
+      {activeSection === (isCommissioning ? 8 : 7) && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Sign-off & send</h2>
           <div className="card p-4 space-y-2 text-xs">
+            <div className="flex justify-between"><span className="text-gray-500">Visit type</span>
+              <span className={`font-medium ${isCommissioning ? 'text-green-600' : 'text-brand-600'}`}>
+                {visitType === 'commissioning' ? '🆕 Commissioning' : visitType === 'service' ? '🔧 Service & Calibration' : visitType === 'calibration' ? '📊 Calibration only' : '🛠 Repair only'}
+              </span>
+            </div>
             <div className="flex justify-between"><span className="text-gray-500">Instrument</span><span className="font-medium">{selInstrument?.name ?? '-'}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Customer</span><span className="font-medium">{selCustomer?.name ?? '-'}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Date</span><span className="font-medium">{visitDate}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Result</span>
               <span className={`font-bold ${overall === 'pass' ? 'text-green-600' : overall === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
-                {overall === 'pass' ? 'PASS' : overall === 'fail' ? 'FAIL' : '-'}
+                {overall === 'pass' ? 'PASS ✓' : overall === 'fail' ? 'FAIL ✗' : '-'}
               </span>
             </div>
+            {isCommissioning && checklist.length > 0 && (
+              <div className="flex justify-between"><span className="text-gray-500">Checklist</span>
+                <span className={`font-medium ${checklist.filter(i=>i.required&&!i.checked).length>0?'text-red-600':'text-green-600'}`}>
+                  {checklist.filter(i=>i.checked).length}/{checklist.length} completed
+                </span>
+              </div>
+            )}
             {selectedFaults.length > 0 && (
-              <div className="flex justify-between"><span className="text-gray-500">Faults</span><span className="font-medium text-red-600">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} recorded</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Faults</span><span className="font-medium text-red-600">{selectedFaults.length} recorded</span></div>
+            )}
+            {photos.length > 0 && (
+              <div className="flex justify-between"><span className="text-gray-500">Photos</span><span className="font-medium">{photos.length} attached</span></div>
             )}
             <div className="flex justify-between"><span className="text-gray-500">Email to</span><span className="font-medium">{customerEmail || '- no email set'}</span></div>
           </div>
-          <div><label className="label">Engineer signature</label><SigCanvas label="Draw signature here" canvasRef={engSigRef} onSign={() => setEngSigned(true)} /></div>
-          <div><label className="label">Customer signature</label><SigCanvas label="Customer signs here" canvasRef={custSigRef} onSign={() => setCustSigned(true)} /></div>
           <div><label className="label">Customer printed name</label><input className="input" value={custPrintName} onChange={e => setCustPrintName(e.target.value)} placeholder="Print name" /></div>
           {saveMsg && <div className="text-sm text-brand-600 bg-brand-50 rounded-xl px-4 py-2">{saveMsg}</div>}
           <div className="space-y-2 pt-2">
@@ -721,12 +793,12 @@ export default function NewReportPage() {
             {customerEmail && (
               <button onClick={() => handleSave(true, false)} disabled={saving}
                 className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-700 text-white font-semibold text-sm transition-colors disabled:opacity-50">
-                {saving ? 'Saving...' : 'Save & email report to customer'}
+                {saving ? 'Saving...' : '✉ Save & email to customer'}
               </button>
             )}
             <button onClick={() => handleSave(false, false)} disabled={saving}
               className="w-full py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm transition-colors disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save & complete (no email)'}
+              {saving ? 'Saving...' : '✓ Save & complete (no email)'}
             </button>
           </div>
         </div>
