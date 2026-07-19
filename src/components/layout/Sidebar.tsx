@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation' 
 import { useState } from 'react'
 import clsx from 'clsx'
 
