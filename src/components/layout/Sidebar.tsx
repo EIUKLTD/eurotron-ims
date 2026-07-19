@@ -24,6 +24,7 @@ const adminItems = [
   { href: '/dashboard/admin/models', label: 'Inst. Models', icon: '⊙' },
   { href: '/dashboard/admin/faults', label: 'Fault Types', icon: '⚠' },
   { href: '/dashboard/admin/Sensors', label: 'Sensor Library', icon: '⊙' },
+  { href: '/dashboard/admin/commissioning', label: 'Commissioning', icon: '🆕' },
 ]
 
 const portalNav = [
