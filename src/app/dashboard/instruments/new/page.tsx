@@ -80,7 +80,7 @@ export default function NewInstrumentPage() {
     if (!m) return
     set('make', m.make || '')
     set('model', m.model || '')
-    set('name', m.name || `${m.make} ${m.model}`)
+    set('name', '')
     set('analyser_type', m.analyser_type || 'Fixed Installation')
     // Pressure gauge model fields
     if (m.instrument_category === 'pressure_gauge') {
@@ -202,7 +202,31 @@ export default function NewInstrumentPage() {
         {/* Instrument details */}
         <div className="p-5 space-y-3">
           <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Instrument details</h2>
-          <div><label className="label">Instrument name</label><input className="input" value={form.name} onChange={e=>set('name',e.target.value)} placeholder={form.make ? `${form.make} ${form.model}` : 'e.g. PRESSURE GAUGE 0-20 BAR'} /></div>
+          <div>
+            <label className="label">Instrument type</label>
+            <select className="input" value={form.name} onChange={e=>set('name',e.target.value)}>
+              <option value="">Select type...</option>
+              {isPressure && <>
+                <option>Digital Pressure Gauge</option>
+                <option>Analogue Pressure Gauge</option>
+                <option>Digital Compound Gauge</option>
+                <option>Analogue Compound Gauge</option>
+                <option>Differential Pressure Gauge</option>
+              </>}
+              {isGasAnalyser && <>
+                <option>Fixed Gas Analyser</option>
+                <option>Portable Gas Analyser</option>
+                <option>Flue Gas Analyser</option>
+                <option>Process Gas Analyser</option>
+              </>}
+              {!isPressure && !isGasAnalyser && <>
+                <option>Temperature Instrument</option>
+                <option>Flow Meter</option>
+                <option>Electrical Instrument</option>
+                <option>Other Instrument</option>
+              </>}
+            </select>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">Make</label><input className="input" value={form.make} onChange={e=>set('make',e.target.value)} placeholder="e.g. Wika, Druck, MRU" /></div>
             <div><label className="label">Model</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} /></div>
