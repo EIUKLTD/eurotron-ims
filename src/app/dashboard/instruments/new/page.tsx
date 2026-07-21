@@ -9,22 +9,23 @@ const PRESSURE_UNITS = ['bar','mbar','psi','kPa','MPa','inH2O','mmHg']
 const CONNECTIONS = ['1/4" BSP MALE','1/4" BSP FEMALE','1/2" BSP MALE','1/2" BSP FEMALE','1/4" NPT MALE','1/2" NPT MALE','Other']
 const GAUGE_TYPES = ['Gauge','Absolute','Differential','Compound']
 const CATEGORIES = [
-  { key: 'gas_analyser',    label: '🔬 Gas Analyser' },
-  { key: 'pressure_gauge',  label: '📊 Pressure Gauge' },
-  { key: 'temperature',     label: '🌡 Temperature' },
-  { key: 'flow',            label: '💧 Flow' },
-  { key: 'electrical',      label: '⚡ Electrical' },
-  { key: 'other',           label: '🔧 Other' },
+  { key: 'gas_analyser',   label: '🔬 Gas Analyser' },
+  { key: 'pressure_gauge', label: '📊 Pressure Gauge' },
+  { key: 'temperature',    label: '🌡 Temperature' },
+  { key: 'flow',           label: '💧 Flow' },
+  { key: 'electrical',     label: '⚡ Electrical' },
+  { key: 'other',          label: '🔧 Other' },
 ]
 
 export default function NewInstrumentPage() {
   const router   = useRouter()
   const supabase = createClient()
-  const [customers, setCustomers]   = useState<any[]>([])
-  const [sites, setSites]           = useState<any[]>([])
-  const [models, setModels]         = useState<any[]>([])
+  const [customers, setCustomers]     = useState<any[]>([])
+  const [sites, setSites]             = useState<any[]>([])
+  const [models, setModels]           = useState<any[]>([])
   const [filteredSites, setFilteredSites] = useState<any[]>([])
-  const [saving, setSaving]         = useState(false)
+  const [filteredModels, setFilteredModels] = useState<any[]>([])
+  const [saving, setSaving]           = useState(false)
   const [form, setForm] = useState<any>({
     instrument_category: 'gas_analyser',
     customer_id: '', site_id: '', name: '', make: '', model: '',
@@ -33,7 +34,6 @@ export default function NewInstrumentPage() {
     location: '', cal_interval_months: 12, last_cal_date: '',
     next_cal_date: '', purchase_date: '', warranty_expiry: '',
     notes: '', status: 'active',
-    // Pressure fields
     decimal_places: 2, pressure_range: '', vacuum_range: '',
     pressure_unit: 'bar', accuracy_pct_fs: 0.05,
     gauge_type: 'Gauge', pressure_connection: '1/2" BSP FEMALE',
@@ -43,13 +43,25 @@ export default function NewInstrumentPage() {
     Promise.all([
       supabase.from('customers').select('id,name').order('name'),
       supabase.from('sites').select('*').order('name'),
-      supabase.from('instrument_models').select('*').eq('active', true).order('name'),
+      supabase.from('instrument_models').select('*').eq('active', true).order('make').order('model'),
     ]).then(([{ data: c }, { data: s }, { data: m }]) => {
       setCustomers(c||[]); setSites(s||[]); setModels(m||[])
     })
   }, [])
 
+  // Filter models by category
+  useEffect(() => {
+    setFilteredModels(models.filter(m => (m.instrument_category || 'gas_analyser') === form.instrument_category))
+  }, [form.instrument_category, models])
+
   function set(k:string, v:any) { setForm((f:any) => ({ ...f, [k]: v })) }
+
+  function handleCategoryChange(cat: string) {
+    set('instrument_category', cat)
+    // Reset model-specific fields
+    set('make', ''); set('model', ''); set('name', '')
+    set('gases_measured', [])
+  }
 
   function handleCustomerChange(customerId:string) {
     set('customer_id', customerId); set('site_id', '')
@@ -65,19 +77,33 @@ export default function NewInstrumentPage() {
   function handleModelChange(modelId:string) {
     if (!modelId) return
     const m = models.find(m => m.id === modelId)
-    if (m) { set('make', m.make); set('model', m.model); set('analyser_type', m.analyser_type || 'Fixed Installation'); set('name', m.name) }
+    if (!m) return
+    set('make', m.make || '')
+    set('model', m.model || '')
+    set('name', m.name || `${m.make} ${m.model}`)
+    set('analyser_type', m.analyser_type || 'Fixed Installation')
+    // Pressure gauge model fields
+    if (m.instrument_category === 'pressure_gauge') {
+      if (m.pressure_range)     set('pressure_range', m.pressure_range)
+      if (m.vacuum_range)       set('vacuum_range', m.vacuum_range)
+      if (m.pressure_unit)      set('pressure_unit', m.pressure_unit)
+      if (m.accuracy_pct_fs)    set('accuracy_pct_fs', m.accuracy_pct_fs)
+      if (m.decimal_places)     set('decimal_places', m.decimal_places)
+      if (m.gauge_type)         set('gauge_type', m.gauge_type)
+      if (m.pressure_connection) set('pressure_connection', m.pressure_connection)
+    }
   }
 
   function toggleGas(g:string) {
-    set('gases_measured', form.gases_measured.includes(g) ? form.gases_measured.filter((x:string) => x !== g) : [...form.gases_measured, g])
+    set('gases_measured', form.gases_measured.includes(g)
+      ? form.gases_measured.filter((x:string) => x !== g)
+      : [...form.gases_measured, g])
   }
 
-  // Calculate resolution from decimal places
   function getResolution() {
-    return Math.pow(10, -form.decimal_places)
+    return Math.pow(10, -form.decimal_places).toFixed(form.decimal_places)
   }
 
-  // Calculate tolerance in pressure unit
   function getTolerance() {
     if (!form.pressure_range || !form.accuracy_pct_fs) return null
     return (form.accuracy_pct_fs * parseFloat(form.pressure_range) / 100).toFixed(form.decimal_places)
@@ -85,20 +111,22 @@ export default function NewInstrumentPage() {
 
   async function handleSave() {
     if (!form.customer_id) return alert('Please select a customer.')
-    if (!form.name) return alert('Instrument name is required.')
+    if (!form.name && !form.make) return alert('Please enter instrument name or select a model.')
     if (form.instrument_category === 'pressure_gauge' && !form.pressure_range) return alert('Please enter a pressure range.')
     setSaving(true)
     const { error } = await supabase.from('instruments').insert({
       ...form,
+      name: form.name || `${form.make} ${form.model}`,
       cal_interval_months: Number(form.cal_interval_months),
       last_cal_date:   form.last_cal_date   || null,
       next_cal_date:   form.next_cal_date   || null,
       purchase_date:   form.purchase_date   || null,
       warranty_expiry: form.warranty_expiry || null,
       site_id:         form.site_id         || null,
-      pressure_range:  form.pressure_range  ? parseFloat(form.pressure_range) : null,
-      vacuum_range:    form.vacuum_range    ? parseFloat(form.vacuum_range)   : null,
+      pressure_range:  form.pressure_range  ? parseFloat(form.pressure_range)  : null,
+      vacuum_range:    form.vacuum_range    ? parseFloat(form.vacuum_range)    : null,
       accuracy_pct_fs: parseFloat(form.accuracy_pct_fs),
+      decimal_places:  parseInt(form.decimal_places),
     })
     setSaving(false)
     if (error) {
@@ -128,10 +156,10 @@ export default function NewInstrumentPage() {
 
         {/* Category selector */}
         <div className="p-5 space-y-3">
-          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Instrument category</h2>
+          <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Instrument category</h2>
           <div className="grid grid-cols-3 gap-2">
             {CATEGORIES.map(cat => (
-              <button key={cat.key} onClick={() => set('instrument_category', cat.key)}
+              <button key={cat.key} onClick={() => handleCategoryChange(cat.key)}
                 className={`py-2.5 px-3 rounded-xl border-2 text-xs font-medium text-left transition-colors ${form.instrument_category === cat.key ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'}`}>
                 {cat.label}
               </button>
@@ -141,7 +169,7 @@ export default function NewInstrumentPage() {
 
         {/* Customer & Site */}
         <div className="p-5 space-y-3">
-          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Customer & site</h2>
+          <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Customer & site</h2>
           <div>
             <label className="label">Customer *</label>
             <select className="input" value={form.customer_id} onChange={e=>handleCustomerChange(e.target.value)}>
@@ -152,29 +180,31 @@ export default function NewInstrumentPage() {
           <div>
             <label className="label">Site</label>
             <select className="input" value={form.site_id} onChange={e=>handleSiteChange(e.target.value)} disabled={!form.customer_id}>
-              <option value="">{form.customer_id?'Select site...':'Select a customer first'}</option>
+              <option value="">{form.customer_id ? 'Select site...' : 'Select a customer first'}</option>
               {filteredSites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
         </div>
 
-        {/* Model selector - gas analysers only */}
-        {isGasAnalyser && models.length > 0 && (
+        {/* Model selector */}
+        {filteredModels.length > 0 && (
           <div className="p-5 space-y-3">
-            <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Model (auto-fills details)</h2>
+            <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">
+              Model <span className="text-gray-400 font-normal normal-case">(auto-fills details)</span>
+            </h2>
             <select className="input" onChange={e=>handleModelChange(e.target.value)}>
-              <option value="">Select a model...</option>
-              {models.map(m=><option key={m.id} value={m.id}>{m.make} {m.model}</option>)}
+              <option value="">Select a model to auto-fill...</option>
+              {filteredModels.map(m=><option key={m.id} value={m.id}>{m.make} {m.model}{m.pressure_range ? ` — 0 to ${m.pressure_range} ${m.pressure_unit}` : ''}</option>)}
             </select>
           </div>
         )}
 
         {/* Instrument details */}
         <div className="p-5 space-y-3">
-          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Instrument details</h2>
-          <div><label className="label">Instrument name *</label><input className="input" value={form.name} onChange={e=>set('name',e.target.value)} placeholder="e.g. FIXED GAS ANALYSER" /></div>
+          <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Instrument details</h2>
+          <div><label className="label">Instrument name</label><input className="input" value={form.name} onChange={e=>set('name',e.target.value)} placeholder={form.make ? `${form.make} ${form.model}` : 'e.g. PRESSURE GAUGE 0-20 BAR'} /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="label">Make</label><input className="input" value={form.make} onChange={e=>set('make',e.target.value)} placeholder="e.g. MRU, Druck, Wika" /></div>
+            <div><label className="label">Make</label><input className="input" value={form.make} onChange={e=>set('make',e.target.value)} placeholder="e.g. Wika, Druck, MRU" /></div>
             <div><label className="label">Model</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -199,7 +229,7 @@ export default function NewInstrumentPage() {
                 <div className="flex flex-wrap gap-2 mt-1">
                   {GAS_OPTIONS.map(g=>(
                     <button key={g} type="button" onClick={()=>toggleGas(g)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${form.gases_measured.includes(g)?'bg-brand-500 text-white border-brand-500':'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${form.gases_measured.includes(g) ? 'bg-brand-500 text-white border-brand-500' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
                       {g}
                     </button>
                   ))}
@@ -256,7 +286,7 @@ export default function NewInstrumentPage() {
 
         {/* Calibration schedule */}
         <div className="p-5 space-y-3">
-          <h2 className="font-medium text-gray-900 text-sm uppercase tracking-wide">Calibration schedule</h2>
+          <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Calibration schedule</h2>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="label">Interval (months)</label><input className="input" type="number" value={form.cal_interval_months} onChange={e=>set('cal_interval_months',e.target.value)} min={1} /></div>
             <div><label className="label">Last calibration</label><input className="input" type="date" value={form.last_cal_date} onChange={e=>set('last_cal_date',e.target.value)} /></div>
@@ -283,7 +313,7 @@ export default function NewInstrumentPage() {
         </div>
 
         <div className="p-5 flex gap-3">
-          <button onClick={handleSave} disabled={saving} className="btn-primary">{saving?'Saving...':'Save instrument'}</button>
+          <button onClick={handleSave} disabled={saving} className="btn-primary">{saving ? 'Saving...' : 'Save instrument'}</button>
           <button onClick={()=>router.back()} className="btn-secondary">Cancel</button>
         </div>
       </div>
