@@ -342,43 +342,82 @@ export function generateReportPDF(report: ReportData): jsPDF {
   }
 
   // ── HEADER ─────────────────────────────────────────────────────
-  doc.setFillColor(...C.black)
-  doc.rect(0, 0, W, 36, 'F')
-  doc.setFillColor(...C.green)
-  doc.rect(0, 34, W, 2, 'F')
+  if (isPressure) {
+    // Light header for pressure - white background with green border
+    doc.setFillColor(255, 255, 255)
+    doc.rect(0, 0, W, 38, 'F')
+    doc.setFillColor(...C.green)
+    doc.rect(0, 36, W, 2, 'F')
+    doc.setDrawColor(...C.green)
+    doc.setLineWidth(0.5)
+    doc.rect(0, 0, W, 38, 'S')
 
-  // EiUK Logo
-  doc.setFillColor(20, 20, 20)
-  doc.setDrawColor(...C.green)
-  doc.setLineWidth(0.8)
-  doc.roundedRect(10, 5, 32, 24, 4, 4, 'FD')
-  setFont('bold', 20, C.green)
-  doc.text('EiUK', 26, 21, { align: 'center' })
+    // EiUK Logo - dark box
+    doc.setFillColor(20, 20, 20)
+    doc.setDrawColor(...C.green)
+    doc.setLineWidth(0.8)
+    doc.roundedRect(10, 5, 32, 26, 4, 4, 'FD')
+    setFont('bold', 20, C.green)
+    doc.text('EiUK', 26, 22, { align: 'center' })
 
-  setFont('bold', 13, C.white)
-  doc.text('Eurotron Instruments (UK) Ltd', 48, 13)
-  setFont('normal', 8.5, C.green)
-  doc.text(isPressure ? 'Calibration Certificate' : 'Gas Analyser Calibration Certificate', 48, 21)
-  if (!isPressure) {
+    setFont('bold', 15, C.darkGray)
+    doc.text('Eurotron Instruments (UK) Ltd', 48, 14)
+    setFont('bold', 13, C.green)
+    doc.text('Calibration Certificate', 48, 26)
+  } else {
+    doc.setFillColor(...C.black)
+    doc.rect(0, 0, W, 36, 'F')
+    doc.setFillColor(...C.green)
+    doc.rect(0, 34, W, 2, 'F')
+
+    // EiUK Logo
+    doc.setFillColor(20, 20, 20)
+    doc.setDrawColor(...C.green)
+    doc.setLineWidth(0.8)
+    doc.roundedRect(10, 5, 32, 24, 4, 4, 'FD')
+    setFont('bold', 20, C.green)
+    doc.text('EiUK', 26, 21, { align: 'center' })
+
+    setFont('bold', 13, C.white)
+    doc.text('Eurotron Instruments (UK) Ltd', 48, 13)
+    setFont('normal', 8.5, C.green)
+    doc.text('Gas Analyser Calibration Certificate', 48, 21)
     setFont('normal', 7, [180, 180, 180])
     doc.text('Instrument Calibration Services', 48, 28)
   }
 
   // Certificate number box
-  doc.setFillColor(...C.darkGray)
-  doc.rect(W - 56, 4, 52, 28, 'F')
-  doc.setDrawColor(...C.green)
-  doc.setLineWidth(0.8)
-  doc.rect(W - 56, 4, 52, 28, 'S')
-  setFont('normal', 6.5, C.green)
-  doc.text('CERTIFICATE NUMBER', W - 30, 11, { align: 'center' })
-  setFont('bold', 10, C.white)
-  doc.text(report.report_number, W - 30, 19, { align: 'center' })
-  setFont('normal', 7, [180, 180, 180])
-  doc.text(
-    report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '',
-    W - 30, 27, { align: 'center' }
-  )
+  if (isPressure) {
+    doc.setFillColor(248, 248, 248)
+    doc.rect(W - 58, 4, 48, 28, 'F')
+    doc.setDrawColor(...C.green)
+    doc.setLineWidth(0.8)
+    doc.rect(W - 58, 4, 48, 28, 'S')
+    setFont('normal', 6.5, C.green)
+    doc.text('CERTIFICATE NUMBER', W - 34, 11, { align: 'center' })
+    setFont('bold', 10, C.darkGray)
+    doc.text(report.report_number, W - 34, 19, { align: 'center' })
+    setFont('normal', 7, C.muted)
+    doc.text(
+      report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '',
+      W - 34, 27, { align: 'center' }
+    )
+  } else {
+    doc.setFillColor(...C.darkGray)
+    doc.rect(W - 56, 4, 52, 28, 'F')
+    doc.setDrawColor(...C.green)
+    doc.setLineWidth(0.8)
+    doc.rect(W - 56, 4, 52, 28, 'S')
+    setFont('normal', 6.5, C.green)
+    doc.text('CERTIFICATE NUMBER', W - 30, 11, { align: 'center' })
+    setFont('bold', 10, C.white)
+    doc.text(report.report_number, W - 30, 19, { align: 'center' })
+    setFont('normal', 7, [180, 180, 180])
+    doc.text(
+      report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '',
+      W - 30, 27, { align: 'center' }
+    )
+  }
 
   y = 42
 
