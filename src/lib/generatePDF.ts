@@ -364,11 +364,14 @@ export function generateReportPDF(report: ReportData): jsPDF {
   // ── CUSTOMER & SITE ────────────────────────────────────────────
   sectionHeader('Customer & site')
   fieldPair('Customer', report.customer?.name ?? '', 'Site / location', report.site_location ?? '')
-  fieldPair('Contact on site', report.contact_name ?? '', 'Customer phone', report.customer?.contact_phone ?? '')
+  if (!isPressure) {
+    fieldPair('Contact on site', report.contact_name ?? '', 'Customer phone', report.customer?.contact_phone ?? '')
+  }
   fieldPair(
     'Visit date',
     report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'}) : '',
-    'Visit time', report.visit_time ?? ''
+    isPressure ? '' : 'Visit time',
+    isPressure ? '' : (report.visit_time ?? '')
   )
   fieldPair('Engineer', report.engineer?.full_name ?? '', 'Engineer email', report.engineer?.email ?? '')
   if (report.sage_number) fieldPair('Sage sales number', report.sage_number, '', '')
@@ -494,7 +497,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.setLineWidth(0.5)
     doc.roundedRect(M, y, TW, 9, 2, 2, 'S')
     setFont('bold', 10, isPass ? C.pass : C.fail)
-    doc.text(isPass ? '✓  Overall result: PASS' : '✗  Overall result: FAIL', W/2, y + 6, { align: 'center' })
+    doc.text(isPass ? 'Overall result: PASS' : 'Overall result: FAIL', W/2, y + 6, { align: 'center' })
     y += 13
   }
 
@@ -553,22 +556,30 @@ export function generateReportPDF(report: ReportData): jsPDF {
   }
 
   // ── SIGN-OFF ───────────────────────────────────────────────────
-  chk(50)
-  sectionHeader('Sign-off')
-  const bw = TW / 2 - 4
-  doc.setDrawColor(...C.border)
-  doc.setLineWidth(0.4)
-  doc.roundedRect(M, y, bw, 22, 2, 2, 'S')
-  doc.roundedRect(M + bw + 8, y, bw, 22, 2, 2, 'S')
-  setFont('normal', 7.5, C.muted)
-  doc.text('Engineer signature', M + 2, y + 4)
-  doc.text('Customer signature', M + bw + 10, y + 4)
-  setFont('normal', 8.5, C.text)
-  doc.text(report.engineer?.full_name ?? '', M + 2, y + 17)
-  doc.text(report.customer_printed_name ?? '', M + bw + 10, y + 17)
-  y += 28
-  setFont('normal', 8, C.text)
-  doc.text(`Date: ${report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB') : ''}`, M, y)
+  if (!isPressure) {
+    chk(50)
+    sectionHeader('Sign-off')
+    const bw = TW / 2 - 4
+    doc.setDrawColor(...C.border)
+    doc.setLineWidth(0.4)
+    doc.roundedRect(M, y, bw, 22, 2, 2, 'S')
+    doc.roundedRect(M + bw + 8, y, bw, 22, 2, 2, 'S')
+    setFont('normal', 7.5, C.muted)
+    doc.text('Engineer signature', M + 2, y + 4)
+    doc.text('Customer signature', M + bw + 10, y + 4)
+    setFont('normal', 8.5, C.text)
+    doc.text(report.engineer?.full_name ?? '', M + 2, y + 17)
+    doc.text(report.customer_printed_name ?? '', M + bw + 10, y + 17)
+    y += 28
+    setFont('normal', 8, C.text)
+    doc.text(`Date: ${report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB') : ''}`, M, y)
+  } else {
+    chk(12)
+    setFont('normal', 8, C.muted)
+    doc.text(`Calibrated by: ${report.engineer?.full_name ?? ''}`, M, y)
+    doc.text(`Date: ${report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB') : ''}`, M + 80, y)
+    y += 6
+  }
 
   // ── FOOTER ON ALL PAGES ────────────────────────────────────────
   const totalPages = (doc as any).internal.getNumberOfPages()
