@@ -368,7 +368,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     fieldPair('Contact on site', report.contact_name ?? '', 'Customer phone', report.customer?.contact_phone ?? '')
   }
   fieldPair(
-    'Visit date',
+    isPressure ? 'Date' : 'Visit date',
     report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'}) : '',
     isPressure ? '' : 'Visit time',
     isPressure ? '' : (report.visit_time ?? '')
@@ -447,7 +447,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     const afterAdj   = pressureReadings.filter(r => r.phase === 'after_adjustment').sort((a, b) => a.sort_order - b.sort_order)
 
     if (asReceived.length > 0) pressureCalTable(asReceived, 'As Received Results')
-    if (afterAdj.length > 0)   pressureCalTable(afterAdj, 'After Adjustment Results')
+    if (afterAdj.length > 0)   pressureCalTable(afterAdj, asReceived.length > 0 ? 'After Adjustment Results' : 'Calibration Results')
 
     // Tolerance info box
     if (inst?.accuracy_pct_fs && inst?.pressure_range) {
