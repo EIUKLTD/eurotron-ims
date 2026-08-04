@@ -516,14 +516,13 @@ export default function NewReportPage() {
                   <tr key={row.id}>
                     <td className="px-3 py-1.5">
                       <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
-                        value={row.applied}
-                        onChange={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, applied: e.target.value } : r))}
+                        defaultValue={row.applied}
                         onBlur={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, applied: autoRound(e.target.value, dp) } : r))} />
                     </td>
                     <td className="px-3 py-1.5">
                       <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
-                        value={row.reading} placeholder={`e.g. ${row.applied}`}
-                        onChange={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, reading: e.target.value } : r))}
+                        defaultValue={row.reading}
+                        placeholder={`e.g. ${row.applied}`}
                         onBlur={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, reading: autoRound(e.target.value, dp) } : r))} />
                     </td>
                     <td className="px-3 py-1.5 font-mono text-gray-600 text-xs">{calc.error || '—'}</td>
