@@ -1,7 +1,14 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
+
+interface PressureRow {
+  id: string
+  applied: string
+  reading: string
+  direction: 'up' | 'down'
+}
 
 interface CalRow {
   id: string
@@ -26,14 +33,12 @@ interface PartRow {
   part_number: string
   quantity: number
   warranty: string
-  save_to_library: boolean
 }
 
 interface SelectedBottle { uid: string; stdId: string }
-interface ChecklistItem { id: string; category: string; item: string; required: boolean; checked: boolean; notes: string }
 
 function uid() { return Math.random().toString(36).slice(2) }
-function emptyPart(): PartRow { return { id: uid(), description: '', part_number: '', quantity: 1, warranty: '', save_to_library: false } }
+function emptyPart(): PartRow { return { id: uid(), description: '', part_number: '', quantity: 1, warranty: '' } }
 
 function calcToleranceDisplay(row: CalRow): string {
   if (row.tolerance_type === 'fixed_abs') return `+/-${row.tolerance} ${row.tolerance_unit}`
@@ -48,7 +53,7 @@ function calcToleranceDisplay(row: CalRow): string {
   return ''
 }
 
-function calcError(row: CalRow): { error: string; result: 'pass' | 'fail' | 'not_installed' | '' } {
+function calcGasError(row: CalRow): { error: string; result: 'pass' | 'fail' | 'not_installed' | '' } {
   if (!row.measured || row.measured.trim() === '') return { error: '', result: 'not_installed' }
   const nom = parseFloat(row.nominal)
   const meas = parseFloat(row.measured)
@@ -66,8 +71,7 @@ function MeasuredInput({ row, onUpdate }: { row: CalRow; onUpdate: (id: string, 
   return (
     <input type="number" step="any"
       className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
-      defaultValue={row.measured}
-      placeholder="Leave blank = Not installed"
+      defaultValue={row.measured} placeholder="Leave blank = Not installed"
       onBlur={e => onUpdate(row.id, e.target.value)} />
   )
 }
@@ -78,48 +82,59 @@ export default function NewReportPage() {
   const supabase = createClient()
   const preselectedId = searchParams.get('instrument')
 
-  const [instruments, setInstruments] = useState<any[]>([])
-  const [standards, setStandards]     = useState<any[]>([])
-  const [partsLib, setPartsLib]       = useState<any[]>([])
-  const [templates, setTemplates]     = useState<any[]>([])
-  const [faultTypes, setFaultTypes]   = useState<any[]>([])
+  const [instruments, setInstruments]   = useState<any[]>([])
+  const [standards, setStandards]       = useState<any[]>([])
+  const [partsLib, setPartsLib]         = useState<any[]>([])
+  const [templates, setTemplates]       = useState<any[]>([])
+  const [faultTypes, setFaultTypes]     = useState<any[]>([])
   const [commTemplates, setCommTemplates] = useState<any[]>([])
-  const [profile, setProfile]         = useState<any>(null)
+  const [profile, setProfile]           = useState<any>(null)
   const [selInstrument, setSelInstrument] = useState<any>(null)
-  const [selCustomer, setSelCustomer] = useState<any>(null)
+  const [selCustomer, setSelCustomer]   = useState<any>(null)
 
   const today = new Date()
-  const [visitType, setVisitType]     = useState<'service'|'commissioning'|'calibration'|'repair'>('service')
+  const [visitType, setVisitType]       = useState<'service'|'commissioning'|'calibration'|'repair'>('service')
   const [instrumentId, setInstrumentId] = useState(preselectedId ?? '')
-  const [visitDate, setVisitDate]     = useState(today.toISOString().split('T')[0])
-  const [visitTime, setVisitTime]     = useState(today.toTimeString().slice(0, 5))
+  const [visitDate, setVisitDate]       = useState(today.toISOString().split('T')[0])
+  const [visitTime, setVisitTime]       = useState(today.toTimeString().slice(0, 5))
   const [siteLocation, setSiteLocation] = useState('')
-  const [contactName, setContactName] = useState('')
+  const [contactName, setContactName]   = useState('')
   const [customerEmail, setCustomerEmail] = useState('')
-  const [firmware, setFirmware]       = useState('')
-  const [findings, setFindings]       = useState('')
-  const [workDone, setWorkDone]       = useState('')
+  const [firmware, setFirmware]         = useState('')
+  const [findings, setFindings]         = useState('')
+  const [workDone, setWorkDone]         = useState('')
   const [recommendations, setRecommendations] = useState('')
-  const [labourHours, setLabourHours] = useState('')
+  const [labourHours, setLabourHours]   = useState('')
   const [custPrintName, setCustPrintName] = useState('')
-  const [sageNumber, setSageNumber]   = useState('')
+  const [sageNumber, setSageNumber]     = useState('')
   const [selectedFaults, setSelectedFaults] = useState<string[]>([])
-  const [checklist, setChecklist]     = useState<ChecklistItem[]>([])
-  const [commNotes, setCommNotes]     = useState('')
-  const [photos, setPhotos]           = useState<File[]>([])
-  const [photoUrls, setPhotoUrls]     = useState<string[]>([])
-  const [uploadingPhotos, setUploadingPhotos] = useState(false)
+  const [checklist, setChecklist]       = useState<any[]>([])
+  const [commNotes, setCommNotes]       = useState('')
+  const [photos, setPhotos]             = useState<File[]>([])
+  const [photoUrls, setPhotoUrls]       = useState<string[]>([])
 
-  const [arrivalRows, setArrivalRows] = useState<CalRow[]>([])
-  const [asLeftRows, setAsLeftRows]   = useState<CalRow[]>([])
+  // Gas calibration
+  const [arrivalRows, setArrivalRows]   = useState<CalRow[]>([])
+  const [asLeftRows, setAsLeftRows]     = useState<CalRow[]>([])
   const [arrivalBottles, setArrivalBottles] = useState<SelectedBottle[]>([{ uid: uid(), stdId: '' }])
   const [asLeftBottles, setAsLeftBottles]   = useState<SelectedBottle[]>([{ uid: uid(), stdId: '' }])
-  const [partRows, setPartRows]       = useState<PartRow[]>([])
+
+  // Pressure calibration
+  const [pressureRows, setPressureRows] = useState<PressureRow[]>([])
+  const [pressureRefId, setPressureRefId] = useState('')
+  const [tempC, setTempC]               = useState('23')
+  const [media, setMedia]               = useState('Air')
+  const [orientation, setOrientation]   = useState('Vertical Position')
+  const [procedure, setProcedure]       = useState('IS-09-07-01')
+  const [zeroedBefore, setZeroedBefore] = useState(true)
+  const [certExpiry, setCertExpiry]     = useState('')
+
+  const [partRows, setPartRows]         = useState<PartRow[]>([])
   const [showPartPicker, setShowPartPicker] = useState(false)
-  const [partSearch, setPartSearch]   = useState('')
+  const [partSearch, setPartSearch]     = useState('')
   const [activeSection, setActiveSection] = useState(0)
-  const [saving, setSaving]           = useState(false)
-  const [saveMsg, setSaveMsg]         = useState('')
+  const [saving, setSaving]             = useState(false)
+  const [saveMsg, setSaveMsg]           = useState('')
 
   useEffect(() => {
     async function load() {
@@ -144,20 +159,78 @@ export default function NewReportPage() {
     load()
   }, [])
 
-  function loadCommTemplate(templateId: string) {
-    const tmpl = commTemplates.find(t => t.id === templateId)
-    if (tmpl) {
-      setChecklist((tmpl.items || []).map((item: any) => ({ ...item, checked: false, notes: '' })))
-    }
-  }
+  const isPressureGauge = selInstrument?.instrument_category === 'pressure_gauge'
 
   function doSelectInstrument(inst: any, tmpls?: any[]) {
-    setSelInstrument(inst); setInstrumentId(inst.id); setFirmware(inst.firmware_version ?? '')
+    setSelInstrument(inst); setInstrumentId(inst.id)
+    setFirmware(inst.firmware_version ?? '')
     const cust = inst.customer; const site = inst.site
     if (cust) { setSelCustomer(cust); setContactName(cust.contact_name ?? ''); setCustomerEmail(cust.contact_email ?? '') }
     if (site) setSiteLocation([site.name, site.address, site.city, site.postcode].filter(Boolean).join(', '))
-    const availableTemplates = tmpls || templates
-    if (availableTemplates.length > 0) doLoadTemplate(availableTemplates[0])
+
+    if (inst.instrument_category === 'pressure_gauge') {
+      // Set default cert expiry 12 months from today
+      const expiry = new Date(); expiry.setMonth(expiry.getMonth() + 12)
+      setCertExpiry(expiry.toISOString().split('T')[0])
+      // Generate default pressure points
+      generatePressurePoints(inst)
+    } else {
+      const availableTemplates = tmpls || templates
+      if (availableTemplates.length > 0) doLoadTemplate(availableTemplates[0])
+    }
+  }
+
+  function generatePressurePoints(inst?: any) {
+    const instrument = inst || selInstrument
+    if (!instrument) return
+    const range = parseFloat(instrument.pressure_range) || 0
+    const vac = parseFloat(instrument.vacuum_range) || 0
+    const dp = instrument.decimal_places || 2
+
+    const points: number[] = []
+    if (vac < 0) points.push(vac)
+    points.push(0)
+    points.push(parseFloat((range * 0.25).toFixed(dp)))
+    points.push(parseFloat((range * 0.50).toFixed(dp)))
+    points.push(parseFloat((range * 0.75).toFixed(dp)))
+    points.push(range)
+    // Down
+    points.push(parseFloat((range * 0.75).toFixed(dp)))
+    points.push(parseFloat((range * 0.50).toFixed(dp)))
+    points.push(parseFloat((range * 0.25).toFixed(dp)))
+    points.push(0)
+    if (vac < 0) points.push(vac)
+
+    setPressureRows(points.map((p, i) => ({
+      id: uid(),
+      applied: p.toFixed(dp),
+      reading: '',
+      direction: i <= Math.floor(points.length / 2) ? 'up' : 'down'
+    })))
+  }
+
+  function calcPressureError(applied: string, reading: string) {
+    if (!reading || !applied || !selInstrument) return { error: '', errorPct: '', result: '' }
+    const a = parseFloat(applied)
+    const r = parseFloat(reading)
+    const range = parseFloat(selInstrument.pressure_range)
+    const acc = parseFloat(selInstrument.accuracy_pct_fs)
+    const dp = selInstrument.decimal_places || 2
+    if (isNaN(a) || isNaN(r) || isNaN(range) || isNaN(acc)) return { error: '', errorPct: '', result: '' }
+    const err = r - a
+    const errPct = (err / range) * 100
+    const tol = acc * range / 100
+    return {
+      error: parseFloat(err.toFixed(dp + 2)).toString(),
+      errorPct: parseFloat(errPct.toFixed(4)).toString(),
+      result: Math.abs(err) <= tol ? 'PASS' : 'FAIL'
+    }
+  }
+
+  function pressureOverallResult(): 'pass' | 'fail' | 'na' {
+    const results = pressureRows.filter(r => r.reading).map(r => calcPressureError(r.applied, r.reading).result)
+    if (!results.length) return 'na'
+    return results.some(r => r === 'FAIL') ? 'fail' : 'pass'
   }
 
   function doLoadTemplate(template: any) {
@@ -174,12 +247,9 @@ export default function NewReportPage() {
     })
     setArrivalRows(rows)
     setAsLeftRows(rows.map(r => ({ ...r, id: uid(), measured: '', error: '', result: '', bottle_used: '' })))
-    setArrivalBottles([{ uid: uid(), stdId: '' }])
-    setAsLeftBottles([{ uid: uid(), stdId: '' }])
   }
 
   function applyBottleToRows(rows: CalRow[], stdId: string): CalRow[] {
-    if (!stdId) return rows
     const std = standards.find((s: any) => s.id === stdId)
     if (!std || !std.gas_concentrations) return rows
     return rows.map(row => {
@@ -193,31 +263,18 @@ export default function NewReportPage() {
   }
 
   function reapplyAllBottles(bottles: SelectedBottle[], rows: CalRow[]): CalRow[] {
-    let resetRows = rows.map(r => r.nominal_type === 'from_bottle' ? { ...r, nominal: '', unit: '', bottle_used: '', tolerance_display: '' } : r)
-    bottles.forEach(b => { if (b.stdId) resetRows = applyBottleToRows(resetRows, b.stdId) })
-    return resetRows
+    let result = rows.map(r => r.nominal_type === 'from_bottle' ? { ...r, nominal: '', unit: '', bottle_used: '', tolerance_display: '' } : r)
+    bottles.forEach(b => { if (b.stdId) result = applyBottleToRows(result, b.stdId) })
+    return result
   }
 
   function handleArrivalBottleChange(buid: string, newStdId: string) {
     const updated = arrivalBottles.map(b => b.uid === buid ? { ...b, stdId: newStdId } : b)
-    setArrivalBottles(updated)
-    setArrivalRows(prev => reapplyAllBottles(updated, prev))
+    setArrivalBottles(updated); setArrivalRows(prev => reapplyAllBottles(updated, prev))
   }
 
   function handleAsLeftBottleChange(buid: string, newStdId: string) {
     const updated = asLeftBottles.map(b => b.uid === buid ? { ...b, stdId: newStdId } : b)
-    setAsLeftBottles(updated)
-    setAsLeftRows(prev => reapplyAllBottles(updated, prev))
-  }
-
-  function addArrivalBottle() { setArrivalBottles(b => [...b, { uid: uid(), stdId: '' }]) }
-  function addAsLeftBottle()  { setAsLeftBottles(b => [...b, { uid: uid(), stdId: '' }]) }
-  function removeArrivalBottle(buid: string) {
-    const updated = arrivalBottles.filter(b => b.uid !== buid)
-    setArrivalBottles(updated); setArrivalRows(prev => reapplyAllBottles(updated, prev))
-  }
-  function removeAsLeftBottle(buid: string) {
-    const updated = asLeftBottles.filter(b => b.uid !== buid)
     setAsLeftBottles(updated); setAsLeftRows(prev => reapplyAllBottles(updated, prev))
   }
 
@@ -225,8 +282,8 @@ export default function NewReportPage() {
     setArrivalRows(prev => prev.map(row => {
       if (row.id !== id) return row
       const updated = { ...row, measured: val }
-      if (!val || val.trim() === '') return { ...updated, error: '', result: 'not_installed' as const }
-      const { error, result } = calcError(updated)
+      if (!val) return { ...updated, error: '', result: 'not_installed' as const }
+      const { error, result } = calcGasError(updated)
       return { ...updated, error, result }
     }))
   }, [])
@@ -235,11 +292,17 @@ export default function NewReportPage() {
     setAsLeftRows(prev => prev.map(row => {
       if (row.id !== id) return row
       const updated = { ...row, measured: val }
-      if (!val || val.trim() === '') return { ...updated, error: '', result: 'not_installed' as const }
-      const { error, result } = calcError(updated)
+      if (!val) return { ...updated, error: '', result: 'not_installed' as const }
+      const { error, result } = calcGasError(updated)
       return { ...updated, error, result }
     }))
   }, [])
+
+  function gasOverallResult(): 'pass' | 'fail' | 'na' {
+    const asLeftOnly = asLeftRows.filter(r => r.result === 'pass' || r.result === 'fail')
+    if (!asLeftOnly.length) return 'na'
+    return asLeftOnly.some(r => r.result === 'fail') ? 'fail' : 'pass'
+  }
 
   function toggleFault(description: string) {
     setSelectedFaults(prev => prev.includes(description) ? prev.filter(f => f !== description) : [...prev, description])
@@ -249,14 +312,9 @@ export default function NewReportPage() {
     setChecklist(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
   }
 
-  function updateChecklistNotes(id: string, notes: string) {
-    setChecklist(prev => prev.map(item => item.id === id ? { ...item, notes } : item))
-  }
-
-  function overallResult(): 'pass' | 'fail' | 'na' {
-    const asLeftOnly = asLeftRows.filter(r => r.result === 'pass' || r.result === 'fail')
-    if (!asLeftOnly.length) return 'na'
-    return asLeftOnly.some(r => r.result === 'fail') ? 'fail' : 'pass'
+  function loadCommTemplate(templateId: string) {
+    const tmpl = commTemplates.find(t => t.id === templateId)
+    if (tmpl) setChecklist((tmpl.items || []).map((item: any) => ({ ...item, checked: false, notes: '' })))
   }
 
   async function uploadPhotos(reportId: string): Promise<string[]> {
@@ -272,124 +330,164 @@ export default function NewReportPage() {
     return urls
   }
 
-  async function handleSave(sendEmail = false, saveAsDraft = false) {
+  async function handleSave(saveAsDraft = false) {
     if (!instrumentId) { alert('Please select an instrument.'); return }
-    setSaving(true); setSaveMsg('Saving report...')
+    setSaving(true); setSaveMsg('Saving...')
 
+    const overall = isPressureGauge ? pressureOverallResult() : gasOverallResult()
     const faultText = selectedFaults.length > 0 ? selectedFaults.join('\n') : ''
     const fullFindings = [faultText, findings].filter(Boolean).join('\n')
 
     const { data: report, error: rErr } = await supabase.from('service_reports').insert({
-      instrument_id: instrumentId, customer_id: selCustomer?.id ?? selInstrument?.customer_id,
-      engineer_id: profile?.id, visit_date: visitDate, visit_time: visitTime || null,
-      site_location: siteLocation || null, contact_name: contactName || null,
-      firmware_at_visit: firmware || null, findings: fullFindings || null,
-      work_carried_out: workDone || null, recommendations: recommendations || null,
+      instrument_id: instrumentId,
+      customer_id: selCustomer?.id ?? selInstrument?.customer_id,
+      engineer_id: profile?.id,
+      visit_date: visitDate,
+      visit_time: visitTime || null,
+      site_location: siteLocation || null,
+      contact_name: contactName || null,
+      firmware_at_visit: firmware || null,
+      findings: fullFindings || null,
+      work_carried_out: workDone || null,
+      recommendations: recommendations || null,
       labour_hours: labourHours ? parseFloat(labourHours) : null,
-      overall_result: overallResult(), customer_printed_name: custPrintName || null,
-      sage_number: sageNumber || null, fault_codes: selectedFaults,
+      overall_result: overall,
+      customer_printed_name: custPrintName || null,
+      sage_number: sageNumber || null,
+      fault_codes: selectedFaults,
       visit_type: visitType,
+      report_type: isPressureGauge ? 'pressure_cal' : 'service',
       commissioning_checklist: checklist.length > 0 ? checklist : null,
       commissioning_notes: commNotes || null,
+      cert_expiry_date: certExpiry || null,
+      pressure_media: isPressureGauge ? media : null,
+      pressure_temperature: isPressureGauge ? parseFloat(tempC) : null,
+      pressure_orientation: isPressureGauge ? orientation : null,
+      pressure_procedure: isPressureGauge ? procedure : null,
+      zeroed_before_cal: isPressureGauge ? zeroedBefore : null,
       status: saveAsDraft ? 'draft' : 'complete',
     }).select().single()
 
     if (rErr || !report) { alert('Error: ' + rErr?.message); setSaving(false); return }
 
-    // Upload photos
-    if (photos.length > 0) {
-      setSaveMsg('Uploading photos...')
-      setUploadingPhotos(true)
-      const urls = await uploadPhotos(report.id)
-      if (urls.length > 0) {
-        await supabase.from('service_reports').update({ photo_urls: urls }).eq('id', report.id)
+    // Save pressure readings
+    if (isPressureGauge && pressureRows.length > 0) {
+      const readingInserts = pressureRows
+        .filter(r => r.applied !== '')
+        .map((r, i) => ({
+          report_id: report.id,
+          instrument_id: instrumentId,
+          serial_number: selInstrument?.serial_number,
+          sort_order: i,
+          applied_pressure: parseFloat(r.applied),
+          reading: r.reading ? parseFloat(r.reading) : null,
+        }))
+      if (readingInserts.length) await supabase.from('pressure_readings').insert(readingInserts)
+
+      // Save reference standard
+      if (pressureRefId) {
+        const ref = standards.find((s: any) => s.id === pressureRefId)
+        if (ref) await supabase.from('report_standards').insert({
+          report_id: report.id, standard_id: pressureRefId,
+          description: ref.description, serial_number: ref.serial_number,
+          certificate_no: ref.certificate_no, cal_due_date: ref.cal_due_date
+        })
       }
-      setUploadingPhotos(false)
+    } else {
+      // Gas calibration records
+      const calInserts = [
+        ...arrivalRows.filter(r => r.parameter).map((r, i) => ({
+          report_id: report.id, phase: 'arrival', sort_order: i, parameter: r.parameter,
+          nominal: r.nominal ? `${r.nominal} ${r.unit}` : null,
+          tolerance: r.tolerance_display, measured: r.measured || null,
+          error_value: r.result === 'not_installed' ? 'Not installed' : r.error,
+          result: r.result === 'not_installed' ? null : (r.result || null)
+        })),
+        ...asLeftRows.filter(r => r.parameter).map((r, i) => ({
+          report_id: report.id, phase: 'as_left', sort_order: i, parameter: r.parameter,
+          nominal: r.nominal ? `${r.nominal} ${r.unit}` : null,
+          tolerance: r.tolerance_display, measured: r.measured || null,
+          error_value: r.result === 'not_installed' ? 'Not installed' : r.error,
+          result: r.result === 'not_installed' ? null : (r.result || null)
+        }))
+      ]
+      if (calInserts.length) await supabase.from('calibration_records').insert(calInserts)
+
+      const allStdIds = new Set([
+        ...arrivalBottles.filter(b => b.stdId).map(b => b.stdId),
+        ...asLeftBottles.filter(b => b.stdId).map(b => b.stdId)
+      ])
+      const stdInserts = Array.from(allStdIds).map(stdId => {
+        const s = standards.find((s: any) => s.id === stdId)
+        return s ? { report_id: report.id, standard_id: stdId, description: s.description, serial_number: s.serial_number, certificate_no: s.certificate_no, cal_due_date: s.cal_due_date } : null
+      }).filter(Boolean)
+      if (stdInserts.length) await supabase.from('report_standards').insert(stdInserts)
     }
 
-    setSaveMsg('Saving calibration records...')
-    const calInserts = [
-      ...arrivalRows.filter(r => r.parameter).map((r, i) => ({
-        report_id: report.id, phase: 'arrival', sort_order: i, parameter: r.parameter,
-        nominal: r.nominal ? `${r.nominal} ${r.unit}` : null,
-        tolerance: r.tolerance_display, measured: r.measured || null,
-        error_value: r.result === 'not_installed' ? 'Not installed' : r.error,
-        result: r.result === 'not_installed' ? null : (r.result || null)
-      })),
-      ...asLeftRows.filter(r => r.parameter).map((r, i) => ({
-        report_id: report.id, phase: 'as_left', sort_order: i, parameter: r.parameter,
-        nominal: r.nominal ? `${r.nominal} ${r.unit}` : null,
-        tolerance: r.tolerance_display, measured: r.measured || null,
-        error_value: r.result === 'not_installed' ? 'Not installed' : r.error,
-        result: r.result === 'not_installed' ? null : (r.result || null)
-      }))
-    ]
-    if (calInserts.length) await supabase.from('calibration_records').insert(calInserts)
-
-    const allStdIds = new Set([
-      ...arrivalBottles.filter(b => b.stdId).map(b => b.stdId),
-      ...asLeftBottles.filter(b => b.stdId).map(b => b.stdId)
-    ])
-    const stdInserts = Array.from(allStdIds).map(stdId => {
-      const s = standards.find((s: any) => s.id === stdId)
-      return s ? { report_id: report.id, standard_id: stdId, description: s.description, serial_number: s.serial_number, certificate_no: s.certificate_no, cal_due_date: s.cal_due_date } : null
-    }).filter(Boolean)
-    if (stdInserts.length) await supabase.from('report_standards').insert(stdInserts)
-
+    // Parts
     const partInserts = partRows.filter(r => r.description).map(r => ({
       report_id: report.id, description: r.description,
       part_number: r.part_number, quantity: r.quantity, warranty: r.warranty || null
     }))
     if (partInserts.length) await supabase.from('report_parts').insert(partInserts)
 
-    const newLibraryParts = partRows.filter(r => r.description && r.save_to_library)
-    if (newLibraryParts.length) {
-      await supabase.from('parts_library').insert(newLibraryParts.map(r => ({
-        description: r.description, part_number: r.part_number || null, category: 'Other', active: true
-      })))
+    // Photos
+    if (photos.length > 0) {
+      const urls = await uploadPhotos(report.id)
+      if (urls.length > 0) await supabase.from('service_reports').update({ photo_urls: urls }).eq('id', report.id)
     }
 
+    // Update instrument dates
     if (!saveAsDraft) {
-      await supabase.from('instruments').update({
-        last_cal_date: visitDate, last_service_date: visitDate,
+      const updates: any = {
+        last_service_date: visitDate,
+        last_cal_date: visitDate,
         next_cal_date: new Date(new Date(visitDate).setMonth(new Date(visitDate).getMonth() + (selInstrument?.cal_interval_months ?? 12))).toISOString().split('T')[0],
-        firmware_version: firmware || selInstrument?.firmware_version,
-      }).eq('id', instrumentId)
+      }
+      if (!isPressureGauge) updates.firmware_version = firmware || selInstrument?.firmware_version
+      await supabase.from('instruments').update(updates).eq('id', instrumentId)
     }
 
-    setSaveMsg('Report saved!')
-    setSaving(false)
+    setSaving(false); setSaveMsg('Saved!')
     router.push(`/dashboard/reports/${report.id}`)
   }
 
-  function BottleSelector({ bottles, onBottleChange, onAdd, onRemove }: {
-    bottles: SelectedBottle[]; onBottleChange: (uid: string, stdId: string) => void
-    onAdd: () => void; onRemove: (uid: string) => void
-  }) {
+  const faultCategories = [...new Set(faultTypes.map(f => f.category))]
+  const checklistCategories = [...new Set(checklist.map((i: any) => i.category))]
+  const isCommissioning = visitType === 'commissioning'
+  const gasStandards = standards.filter((s: any) => !s.standard_types || s.standard_types.includes('gas'))
+  const pressureStandards = standards.filter((s: any) => s.standard_types?.includes('pressure'))
+  const overall = isPressureGauge ? pressureOverallResult() : gasOverallResult()
+
+  const sections = isPressureGauge
+    ? ['Instrument', 'Conditions', 'Reference', 'Readings', 'Notes & Parts', 'Sign-off']
+    : isCommissioning
+      ? ['Instrument', 'Faults', 'Commissioning', 'On arrival', 'As left', 'Notes', 'Parts', 'Photos', 'Sign-off']
+      : ['Instrument', 'Faults', 'On arrival', 'As left', 'Notes', 'Parts', 'Photos', 'Sign-off']
+
+  function BottleSelector({ bottles, onBottleChange, onAdd, onRemove, stds }: any) {
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="label mb-0 font-semibold">Span gas bottle(s) used *</label>
+          <label className="label mb-0 font-semibold">Span gas bottle(s) *</label>
           <button onClick={onAdd} className="text-xs text-brand-500 hover:underline">+ Add bottle</button>
         </div>
-        {bottles.map((b, i) => (
+        {bottles.map((b: any, i: number) => (
           <div key={b.uid} className="flex gap-2 items-start">
             <div className="flex-1">
               <select className={`input ${!b.stdId ? 'border-amber-300 bg-amber-50' : ''}`} value={b.stdId} onChange={e => onBottleChange(b.uid, e.target.value)}>
                 <option value="">⚠ Select bottle {i + 1}...</option>
-                {standards.map((s: any) => (
-                  <option key={s.id} value={s.id}>{s.description} (S/N: {s.serial_number})</option>
-                ))}
+                {stds.map((s: any) => <option key={s.id} value={s.id}>{s.description} (S/N: {s.serial_number})</option>)}
               </select>
               {b.stdId && (
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {standards.find((s: any) => s.id === b.stdId)?.gas_concentrations?.map((g: any, gi: number) => (
+                  {stds.find((s: any) => s.id === b.stdId)?.gas_concentrations?.map((g: any, gi: number) => (
                     <span key={gi} className="badge-info font-mono text-xs">{g.gas}: {g.concentration} {g.unit}</span>
                   ))}
                 </div>
               )}
             </div>
-            {bottles.length > 1 && <button onClick={() => onRemove(b.uid)} className="text-red-400 hover:text-red-600 text-sm mt-2">x</button>}
+            {bottles.length > 1 && <button onClick={() => onRemove(b.uid)} className="text-red-400 text-sm mt-2">x</button>}
           </div>
         ))}
       </div>
@@ -399,9 +497,9 @@ export default function NewReportPage() {
   function CalTable({ rows, onUpdate }: { rows: CalRow[]; onUpdate: (id: string, val: string) => void }) {
     return (
       <div className="overflow-x-auto rounded-xl border border-gray-200">
-        <table className="w-full text-xs" style={{ minWidth: 540 }}>
+        <table className="w-full text-xs" style={{ minWidth: 500 }}>
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider">
+            <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase">
               <th className="px-3 py-2 text-left">Parameter</th>
               <th className="px-3 py-2 text-left">Nominal</th>
               <th className="px-3 py-2 text-left">Tolerance</th>
@@ -434,25 +532,15 @@ export default function NewReportPage() {
     )
   }
 
-  const faultCategories = [...new Set(faultTypes.map(f => f.category))]
-  const checklistCategories = [...new Set(checklist.map(i => i.category))]
-  const isCommissioning = visitType === 'commissioning'
-
-  const sections = isCommissioning
-    ? ['Customer & instrument', 'Faults found', 'Commissioning', 'On arrival', 'As left', 'Service notes', 'Parts used', 'Photos', 'Sign-off']
-    : ['Customer & instrument', 'Faults found', 'On arrival', 'As left', 'Service notes', 'Parts used', 'Photos', 'Sign-off']
-
-  const overall = overallResult()
-
   return (
     <div className="p-4 max-w-2xl mx-auto pb-32">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">New report</h1>
+          <h1 className="text-xl font-semibold text-gray-900">New {isPressureGauge ? 'calibration certificate' : 'report'}</h1>
           <p className="text-gray-400 text-xs mt-0.5">Eurotron Instruments (UK) Ltd</p>
         </div>
         <div className="text-right">
-          <div className="text-xs text-gray-400">Overall result</div>
+          <div className="text-xs text-gray-400">Result</div>
           <span className={`text-sm font-bold ${overall === 'pass' ? 'text-green-600' : overall === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
             {overall === 'pass' ? 'PASS' : overall === 'fail' ? 'FAIL' : '-'}
           </span>
@@ -463,48 +551,69 @@ export default function NewReportPage() {
         {sections.map((s, i) => (
           <button key={i} onClick={() => setActiveSection(i)}
             className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${activeSection === i ? 'bg-brand-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-            {i + 1}. {s.split(' ')[0]}
+            {i + 1}. {s}
           </button>
         ))}
       </div>
 
-      {/* Section 0: Customer & instrument */}
+      {/* SECTION 0: Instrument */}
       {activeSection === 0 && (
         <div className="space-y-3">
-          <h2 className="font-semibold text-gray-800 text-sm">Customer & instrument</h2>
+          <h2 className="font-semibold text-gray-800 text-sm">Instrument</h2>
 
-          {/* Visit type selector */}
-          <div>
-            <label className="label">Visit type</label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { key: 'service', label: '🔧 Service & Calibration', color: 'border-brand-500 bg-brand-50 text-brand-700' },
-                { key: 'commissioning', label: '🆕 Commissioning', color: 'border-green-500 bg-green-50 text-green-700' },
-                { key: 'calibration', label: '📊 Calibration only', color: 'border-blue-500 bg-blue-50 text-blue-700' },
-                { key: 'repair', label: '🛠 Repair only', color: 'border-amber-500 bg-amber-50 text-amber-700' },
-              ].map(vt => (
-                <button key={vt.key} onClick={() => setVisitType(vt.key as any)}
-                  className={`py-2.5 px-3 rounded-xl border-2 text-xs font-medium text-left transition-colors ${visitType === vt.key ? vt.color : 'border-gray-200 bg-white text-gray-500'}`}>
-                  {vt.label}
-                </button>
-              ))}
+          {!isPressureGauge && (
+            <div>
+              <label className="label">Visit type</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'service', label: '🔧 Service & Calibration' },
+                  { key: 'commissioning', label: '🆕 Commissioning' },
+                  { key: 'calibration', label: '📊 Calibration only' },
+                  { key: 'repair', label: '🛠 Repair only' },
+                ].map(vt => (
+                  <button key={vt.key} onClick={() => setVisitType(vt.key as any)}
+                    className={`py-2 px-3 rounded-xl border-2 text-xs font-medium text-left transition-colors ${visitType === vt.key ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-500'}`}>
+                    {vt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div>
             <label className="label">Instrument *</label>
-            <select className="input" value={instrumentId} onChange={e => { const inst = instruments.find(i => i.id === e.target.value); if (inst) doSelectInstrument(inst) }}>
+            <select className="input" value={instrumentId} onChange={e => {
+              const inst = instruments.find(i => i.id === e.target.value)
+              if (inst) doSelectInstrument(inst)
+            }}>
               <option value="">Select instrument...</option>
-              {instruments.map(i => <option key={i.id} value={i.id}>{i.name} - {i.customer?.name}{i.site ? ' / ' + i.site.name : ''} (S/N: {i.serial_number ?? 'N/A'})</option>)}
+              {instruments.map(i => (
+                <option key={i.id} value={i.id}>
+                  {i.name} - {i.customer?.name}{i.site ? ' / ' + i.site.name : ''} (S/N: {i.serial_number ?? 'N/A'})
+                </option>
+              ))}
             </select>
           </div>
+
           {selInstrument && (
             <div className="bg-brand-50 rounded-xl p-3 text-xs space-y-1">
+              <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{selInstrument.name}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Make / model</span><span className="font-medium">{selInstrument.make} {selInstrument.model}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Last cal</span><span className="font-medium">{selInstrument.last_cal_date ?? '-'}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Next cal due</span><span className="font-medium text-amber-600">{selInstrument.next_cal_date ?? '-'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{selInstrument.serial_number}</span></div>
+              {isPressureGauge && (
+                <>
+                  <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.vacuum_range ? selInstrument.vacuum_range + ' to ' : '0 to '}{selInstrument.pressure_range} {selInstrument.pressure_unit}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-medium">±{selInstrument.accuracy_pct_fs}% FS</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Tolerance</span><span className="font-mono font-medium text-green-700">±{(selInstrument.accuracy_pct_fs * selInstrument.pressure_range / 100).toFixed(selInstrument.decimal_places)} {selInstrument.pressure_unit}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Resolution</span><span className="font-mono font-medium">{Math.pow(10, -selInstrument.decimal_places).toFixed(selInstrument.decimal_places)} {selInstrument.pressure_unit}</span></div>
+                </>
+              )}
+              {!isPressureGauge && (
+                <div className="flex justify-between"><span className="text-gray-500">Next cal due</span><span className="font-medium text-amber-600">{selInstrument.next_cal_date ?? '-'}</span></div>
+              )}
             </div>
           )}
+
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">Visit date</label><input className="input" type="date" value={visitDate} onChange={e => setVisitDate(e.target.value)} /></div>
             <div><label className="label">Visit time</label><input className="input" type="time" value={visitTime} onChange={e => setVisitTime(e.target.value)} /></div>
@@ -512,18 +621,209 @@ export default function NewReportPage() {
           <div><label className="label">Site / location</label><input className="input" value={siteLocation} onChange={e => setSiteLocation(e.target.value)} /></div>
           <div><label className="label">Contact person</label><input className="input" value={contactName} onChange={e => setContactName(e.target.value)} /></div>
           <div><label className="label">Customer email</label><input className="input" type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} /></div>
-          <div><label className="label">Firmware version</label><input className="input" value={firmware} onChange={e => setFirmware(e.target.value)} /></div>
-          <div><label className="label">Sage sales number</label><input className="input" value={sageNumber} onChange={e => setSageNumber(e.target.value)} placeholder="e.g. SO-12345" /></div>
+          {!isPressureGauge && <div><label className="label">Firmware version</label><input className="input" value={firmware} onChange={e => setFirmware(e.target.value)} /></div>}
+          <div><label className="label">Sage sales number</label><input className="input" value={sageNumber} onChange={e => setSageNumber(e.target.value)} /></div>
+          {isPressureGauge && (
+            <div><label className="label">Certificate expiry date</label><input className="input" type="date" value={certExpiry} onChange={e => setCertExpiry(e.target.value)} /></div>
+          )}
         </div>
       )}
 
-      {/* Section 1: Faults found */}
-      {activeSection === 1 && (
-        <div className="space-y-4">
-          <div>
-            <h2 className="font-semibold text-gray-800 text-sm">Faults found on arrival</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Tick all faults found.</p>
+      {/* PRESSURE: Section 1 - Conditions */}
+      {isPressureGauge && activeSection === 1 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold text-gray-800 text-sm">Test conditions</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Temperature (°C)</label><input className="input" type="number" value={tempC} onChange={e => setTempC(e.target.value)} /></div>
+            <div>
+              <label className="label">Media</label>
+              <select className="input" value={media} onChange={e => setMedia(e.target.value)}>
+                {['Air','Oil','Water','Nitrogen','Other'].map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
           </div>
+          <div><label className="label">Procedure</label><input className="input" value={procedure} onChange={e => setProcedure(e.target.value)} /></div>
+          <div><label className="label">Orientation</label><input className="input" value={orientation} onChange={e => setOrientation(e.target.value)} /></div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={zeroedBefore} onChange={e => setZeroedBefore(e.target.checked)} className="w-4 h-4 rounded" />
+            <span className="text-sm text-gray-700">Unit was zeroed before calibration</span>
+          </label>
+        </div>
+      )}
+
+      {/* PRESSURE: Section 2 - Reference standard */}
+      {isPressureGauge && activeSection === 2 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold text-gray-800 text-sm">Reference standard</h2>
+          {pressureStandards.length === 0 ? (
+            <div className="bg-amber-50 rounded-xl p-3 text-sm text-amber-700">
+              No pressure reference standards found. Go to <a href="/dashboard/admin/standards" className="underline">Admin → Ref Standards</a> and add your PACE 5000 with type set to Pressure.
+            </div>
+          ) : (
+            <div>
+              <select className={`input ${!pressureRefId ? 'border-amber-300 bg-amber-50' : ''}`} value={pressureRefId} onChange={e => setPressureRefId(e.target.value)}>
+                <option value="">⚠ Select reference standard...</option>
+                {pressureStandards.map((s: any) => <option key={s.id} value={s.id}>{s.description} (S/N: {s.serial_number})</option>)}
+              </select>
+              {pressureRefId && (() => {
+                const ref = pressureStandards.find((s: any) => s.id === pressureRefId)
+                return ref ? (
+                  <div className="mt-2 bg-brand-50 rounded-xl p-3 text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{ref.serial_number}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Certificate no.</span><span className="font-medium">{ref.certificate_no}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Cal due</span>
+                      <span className={`font-medium ${ref.cal_due_date && new Date(ref.cal_due_date) < new Date() ? 'text-red-600' : 'text-gray-700'}`}>
+                        {ref.cal_due_date || '—'}
+                        {ref.cal_due_date && new Date(ref.cal_due_date) < new Date() && ' ⚠ Overdue!'}
+                      </span>
+                    </div>
+                  </div>
+                ) : null
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PRESSURE: Section 3 - Readings */}
+      {isPressureGauge && activeSection === 3 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-gray-800 text-sm">Calibration readings</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Enter UUT reading for each applied pressure point.</p>
+            </div>
+            <button onClick={() => generatePressurePoints()} className="btn-secondary text-xs py-1.5">↺ Reset points</button>
+          </div>
+
+          {selInstrument && (
+            <div className="bg-green-50 border border-green-100 rounded-xl px-4 py-2 text-xs text-green-700">
+              Tolerance: ±{selInstrument.accuracy_pct_fs}% FS = ±{(selInstrument.accuracy_pct_fs * selInstrument.pressure_range / 100).toFixed(selInstrument.decimal_places)} {selInstrument.pressure_unit}
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase">
+                  <th className="px-3 py-2 text-left">Dir</th>
+                  <th className="px-3 py-2 text-left">Applied ({selInstrument?.pressure_unit})</th>
+                  <th className="px-3 py-2 text-left">UUT Reading</th>
+                  <th className="px-3 py-2 text-left">Error</th>
+                  <th className="px-3 py-2 text-left">Error %FS</th>
+                  <th className="px-3 py-2 text-left">Result</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pressureRows.map((row, idx) => {
+                  const calc = calcPressureError(row.applied, row.reading)
+                  return (
+                    <tr key={row.id} className={row.direction === 'down' ? 'bg-blue-50/30' : ''}>
+                      <td className="px-3 py-1.5">
+                        <span className={`text-xs font-bold ${row.direction === 'up' ? 'text-green-600' : 'text-blue-600'}`}>
+                          {row.direction === 'up' ? '↑' : '↓'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
+                          value={row.applied}
+                          onChange={e => setPressureRows(prev => prev.map((r, i) => i === idx ? { ...r, applied: e.target.value } : r))} />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
+                          value={row.reading} placeholder="Enter reading"
+                          onChange={e => setPressureRows(prev => prev.map((r, i) => i === idx ? { ...r, reading: e.target.value } : r))} />
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-gray-600">{calc.error || '—'}</td>
+                      <td className="px-3 py-1.5 font-mono text-gray-600">{calc.errorPct ? calc.errorPct + '%' : '—'}</td>
+                      <td className="px-3 py-1.5">
+                        {calc.result === 'PASS' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">PASS</span>
+                         : calc.result === 'FAIL' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">FAIL</span>
+                         : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <button onClick={() => setPressureRows(prev => prev.filter((_, i) => i !== idx))} className="text-gray-300 hover:text-red-400">x</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={() => setPressureRows(prev => [...prev, { id: uid(), applied: '', reading: '', direction: 'up' }])}
+              className="text-xs text-brand-500 hover:underline">+ Add row (↑)</button>
+            <button onClick={() => setPressureRows(prev => [...prev, { id: uid(), applied: '', reading: '', direction: 'down' }])}
+              className="text-xs text-blue-500 hover:underline">+ Add row (↓)</button>
+          </div>
+
+          {overall !== 'na' && (
+            <div className={`rounded-xl px-4 py-3 text-sm font-medium text-center ${overall === 'pass' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              {overall === 'pass' ? 'Overall result: PASS ✓' : 'Overall result: FAIL ✗'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PRESSURE: Section 4 - Notes & Parts */}
+      {isPressureGauge && activeSection === 4 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold text-gray-800 text-sm">Notes & parts</h2>
+          <div><label className="label">Notes / observations</label><textarea className="input" rows={4} value={findings} onChange={e => setFindings(e.target.value)} /></div>
+          <div><label className="label">Recommendations</label><textarea className="input" rows={3} value={recommendations} onChange={e => setRecommendations(e.target.value)} /></div>
+          <div className="flex items-center justify-between mt-2">
+            <h3 className="text-sm font-semibold text-gray-700">Parts used</h3>
+            <button onClick={() => setPartRows(r => [...r, emptyPart()])} className="text-xs text-brand-500 hover:underline">+ Add part</button>
+          </div>
+          {partRows.map(row => (
+            <div key={row.id} className="grid grid-cols-12 gap-1 items-center">
+              <input className="col-span-5 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description" onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
+              <input className="col-span-4 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.part_number} placeholder="Part no." onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, part_number: e.target.value }))} />
+              <input className="col-span-2 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" min="1" value={row.quantity} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
+              <button onClick={() => setPartRows(partRows.filter(r => r.id !== row.id))} className="col-span-1 text-gray-300 hover:text-red-400 text-base text-center">x</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* PRESSURE: Section 5 - Sign-off */}
+      {isPressureGauge && activeSection === 5 && (
+        <div className="space-y-4">
+          <h2 className="font-semibold text-gray-800 text-sm">Sign-off</h2>
+          <div className="card p-4 space-y-2 text-xs">
+            <div className="flex justify-between"><span className="text-gray-500">Instrument</span><span className="font-medium">{selInstrument?.name} {selInstrument?.make} {selInstrument?.model}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{selInstrument?.serial_number}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Customer</span><span className="font-medium">{selCustomer?.name ?? '—'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Cal date</span><span className="font-medium">{visitDate}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Expiry date</span><span className="font-medium">{certExpiry || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Test points</span><span className="font-medium">{pressureRows.filter(r => r.applied).length}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Overall result</span>
+              <span className={`font-bold ${overall === 'pass' ? 'text-green-600' : overall === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
+                {overall === 'pass' ? 'PASS ✓' : overall === 'fail' ? 'FAIL ✗' : '—'}
+              </span>
+            </div>
+          </div>
+          <div><label className="label">Customer printed name</label><input className="input" value={custPrintName} onChange={e => setCustPrintName(e.target.value)} /></div>
+          {saveMsg && <div className="text-sm text-brand-600 bg-brand-50 rounded-xl px-4 py-2">{saveMsg}</div>}
+          <div className="space-y-2">
+            <button onClick={() => handleSave(true)} disabled={saving}
+              className="w-full py-3 rounded-xl border-2 border-amber-400 bg-amber-50 text-amber-700 font-semibold text-sm disabled:opacity-50">
+              {saving ? 'Saving...' : '💾 Save as draft'}
+            </button>
+            <button onClick={() => handleSave(false)} disabled={saving}
+              className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold text-sm disabled:opacity-50">
+              {saving ? 'Saving...' : '✓ Complete certificate'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* GAS: Section 1 - Faults */}
+      {!isPressureGauge && activeSection === 1 && (
+        <div className="space-y-4">
+          <h2 className="font-semibold text-gray-800 text-sm">Faults found on arrival</h2>
           {selectedFaults.length > 0 && (
             <div className="bg-red-50 border border-red-100 rounded-xl p-3">
               <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} selected</p>
@@ -541,130 +841,102 @@ export default function NewReportPage() {
                     <input type="checkbox" checked={selectedFaults.includes(fault.description)}
                       onChange={() => toggleFault(fault.description)}
                       className="w-4 h-4 rounded border-gray-300 text-brand-500" />
-                    <span className={`text-sm ${selectedFaults.includes(fault.description) ? 'text-red-700 font-medium' : 'text-gray-700'}`}>
-                      {fault.description}
-                    </span>
+                    <span className={`text-sm ${selectedFaults.includes(fault.description) ? 'text-red-700 font-medium' : 'text-gray-700'}`}>{fault.description}</span>
                   </label>
                 ))}
               </div>
             </div>
           ))}
-          <div><label className="label">Additional findings</label><textarea className="input" rows={3} value={findings} onChange={e => setFindings(e.target.value)} placeholder="Any other observations..." /></div>
+          <div><label className="label">Additional findings</label><textarea className="input" rows={3} value={findings} onChange={e => setFindings(e.target.value)} /></div>
         </div>
       )}
 
-      {/* Commissioning section — only shows if visit type is commissioning */}
-      {isCommissioning && activeSection === 2 && (
+      {/* GAS: Commissioning step */}
+      {!isPressureGauge && isCommissioning && activeSection === 2 && (
         <div className="space-y-4">
-          <div>
-            <h2 className="font-semibold text-gray-800 text-sm">Commissioning checklist</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Complete all required items before sign-off.</p>
-          </div>
-
+          <h2 className="font-semibold text-gray-800 text-sm">Commissioning checklist</h2>
           {checklist.length === 0 && (
-            <div className="space-y-2">
-              <label className="label">Load checklist template</label>
+            <div>
+              <label className="label">Load template</label>
               <select className="input" onChange={e => loadCommTemplate(e.target.value)}>
                 <option value="">Select template...</option>
                 {commTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
           )}
-
           {checklist.length > 0 && (
             <>
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-gray-500">
-                  {checklist.filter(i => i.checked).length} / {checklist.length} completed
-                  {checklist.filter(i => i.required && !i.checked).length > 0 && (
-                    <span className="text-red-500 ml-2">· {checklist.filter(i => i.required && !i.checked).length} required items remaining</span>
-                  )}
-                </div>
-                <button onClick={() => setChecklist([])} className="text-xs text-gray-400 hover:underline">Change template</button>
+              <div className="text-xs text-gray-500">
+                {checklist.filter((i: any) => i.checked).length}/{checklist.length} completed
               </div>
-
               {checklistCategories.map(cat => (
                 <div key={cat} className="card p-4">
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{cat}</h3>
-                  <div className="space-y-3">
-                    {checklist.filter(i => i.category === cat).map(item => (
-                      <div key={item.id}>
-                        <label className="flex items-start gap-3 cursor-pointer">
-                          <input type="checkbox" checked={item.checked}
-                            onChange={() => toggleChecklistItem(item.id)}
-                            className="w-4 h-4 rounded border-gray-300 text-brand-500 mt-0.5" />
-                          <div className="flex-1">
-                            <span className={`text-sm ${item.checked ? 'text-green-700 line-through' : item.required ? 'text-gray-900 font-medium' : 'text-gray-700'}`}>
-                              {item.item}
-                              {item.required && !item.checked && <span className="text-red-400 ml-1">*</span>}
-                            </span>
-                          </div>
-                        </label>
-                        {item.checked && (
-                          <input className="mt-1 ml-7 w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                            placeholder="Add notes (optional)..."
-                            value={item.notes}
-                            onChange={e => updateChecklistNotes(item.id, e.target.value)} />
-                        )}
-                      </div>
+                  <div className="space-y-2">
+                    {checklist.filter((i: any) => i.category === cat).map((item: any) => (
+                      <label key={item.id} className="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" checked={item.checked} onChange={() => toggleChecklistItem(item.id)} className="w-4 h-4 rounded mt-0.5" />
+                        <span className={`text-sm ${item.checked ? 'text-green-700 line-through' : 'text-gray-700'}`}>{item.item}</span>
+                      </label>
                     ))}
                   </div>
                 </div>
               ))}
-
-              <div>
-                <label className="label">Commissioning notes</label>
-                <textarea className="input" rows={4} value={commNotes} onChange={e => setCommNotes(e.target.value)}
-                  placeholder="General commissioning notes, observations, customer instructions..." />
-              </div>
+              <div><label className="label">Commissioning notes</label><textarea className="input" rows={4} value={commNotes} onChange={e => setCommNotes(e.target.value)} /></div>
             </>
           )}
         </div>
       )}
 
-      {/* On arrival */}
-      {activeSection === (isCommissioning ? 3 : 2) && (
+      {/* GAS: On arrival */}
+      {!isPressureGauge && activeSection === (isCommissioning ? 3 : 2) && (
         <div className="space-y-4">
-          <div><h2 className="font-semibold text-gray-800 text-sm">On arrival (as found)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
+          <div><h2 className="font-semibold text-gray-800 text-sm">On arrival (as found)</h2><p className="text-xs text-gray-400">Leave blank if not installed.</p></div>
           {arrivalRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
             <>
-              <BottleSelector bottles={arrivalBottles} onBottleChange={handleArrivalBottleChange} onAdd={addArrivalBottle} onRemove={removeArrivalBottle} />
+              <BottleSelector bottles={arrivalBottles} onBottleChange={handleArrivalBottleChange}
+                onAdd={() => setArrivalBottles(b => [...b, { uid: uid(), stdId: '' }])}
+                onRemove={(buid: string) => { const u = arrivalBottles.filter(b => b.uid !== buid); setArrivalBottles(u); setArrivalRows(prev => reapplyAllBottles(u, prev)) }}
+                stds={gasStandards} />
               <CalTable rows={arrivalRows} onUpdate={updateArrivalMeasured} />
             </>
           )}
         </div>
       )}
 
-      {/* As left */}
-      {activeSection === (isCommissioning ? 4 : 3) && (
+      {/* GAS: As left */}
+      {!isPressureGauge && activeSection === (isCommissioning ? 4 : 3) && (
         <div className="space-y-4">
-          <div><h2 className="font-semibold text-gray-800 text-sm">As left (after service)</h2><p className="text-xs text-gray-400 mt-0.5">Leave blank if gas not installed.</p></div>
+          <div><h2 className="font-semibold text-gray-800 text-sm">As left (after service)</h2><p className="text-xs text-gray-400">Leave blank if not installed.</p></div>
           {asLeftRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
             <>
-              <BottleSelector bottles={asLeftBottles} onBottleChange={handleAsLeftBottleChange} onAdd={addAsLeftBottle} onRemove={removeAsLeftBottle} />
+              <BottleSelector bottles={asLeftBottles} onBottleChange={handleAsLeftBottleChange}
+                onAdd={() => setAsLeftBottles(b => [...b, { uid: uid(), stdId: '' }])}
+                onRemove={(buid: string) => { const u = asLeftBottles.filter(b => b.uid !== buid); setAsLeftBottles(u); setAsLeftRows(prev => reapplyAllBottles(u, prev)) }}
+                stds={gasStandards} />
               <CalTable rows={asLeftRows} onUpdate={updateAsLeftMeasured} />
             </>
           )}
-          {[...arrivalRows, ...asLeftRows].some(r => r.result === 'pass' || r.result === 'fail') && (
+          {asLeftRows.some(r => r.result === 'pass' || r.result === 'fail') && (
             <div className={`rounded-xl px-4 py-3 text-sm font-medium text-center ${overall === 'pass' ? 'bg-green-50 text-green-700' : overall === 'fail' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-500'}`}>
-              {overall === 'pass' ? 'Overall result: PASS ✓' : overall === 'fail' ? 'Overall result: FAIL ✗' : 'Overall result pending'}
+              {overall === 'pass' ? 'Overall: PASS ✓' : overall === 'fail' ? 'Overall: FAIL ✗' : 'Pending'}
             </div>
           )}
         </div>
       )}
 
-      {/* Service notes */}
-      {activeSection === (isCommissioning ? 5 : 4) && (
+      {/* GAS: Notes */}
+      {!isPressureGauge && activeSection === (isCommissioning ? 5 : 4) && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Service notes</h2>
-          <div><label className="label">Work carried out</label><textarea className="input" rows={4} value={workDone} onChange={e => setWorkDone(e.target.value)} placeholder="Describe actions taken..." /></div>
-          <div><label className="label">Recommendations</label><textarea className="input" rows={3} value={recommendations} onChange={e => setRecommendations(e.target.value)} placeholder="Any follow-up actions..." /></div>
-          <div><label className="label">Labour time (hours)</label><input className="input" type="number" step="0.5" min="0" value={labourHours} onChange={e => setLabourHours(e.target.value)} style={{ width: 120 }} /></div>
+          <div><label className="label">Work carried out</label><textarea className="input" rows={4} value={workDone} onChange={e => setWorkDone(e.target.value)} /></div>
+          <div><label className="label">Recommendations</label><textarea className="input" rows={3} value={recommendations} onChange={e => setRecommendations(e.target.value)} /></div>
+          <div><label className="label">Labour time (hours)</label><input className="input" type="number" step="0.5" value={labourHours} onChange={e => setLabourHours(e.target.value)} style={{ width: 120 }} /></div>
         </div>
       )}
 
-      {/* Parts */}
-      {activeSection === (isCommissioning ? 6 : 5) && (
+      {/* GAS: Parts */}
+      {!isPressureGauge && activeSection === (isCommissioning ? 6 : 5) && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800 text-sm">Parts used</h2>
@@ -672,133 +944,95 @@ export default function NewReportPage() {
           </div>
           {showPartPicker && (
             <div className="card p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">Parts library</span>
-                <button onClick={() => { setShowPartPicker(false); setPartSearch('') }} className="text-gray-400 text-lg">x</button>
+              <div className="flex justify-between mb-3">
+                <span className="text-sm font-medium">Parts library</span>
+                <button onClick={() => setShowPartPicker(false)} className="text-gray-400">x</button>
               </div>
-              <input className="input text-sm mb-3" placeholder="Search parts..." value={partSearch} onChange={e => setPartSearch(e.target.value)} />
+              <input className="input text-sm mb-3" placeholder="Search..." value={partSearch} onChange={e => setPartSearch(e.target.value)} />
               <div className="space-y-1 max-h-56 overflow-y-auto">
                 {partsLib.filter(p => !partSearch || p.description.toLowerCase().includes(partSearch.toLowerCase())).map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                    <div><div className="text-sm text-gray-800">{p.description}</div><div className="text-xs text-gray-400">{p.part_number ?? '-'}</div></div>
-                    <button onClick={() => setPartRows(r => [...r, { ...emptyPart(), description: p.description, part_number: p.part_number ?? '' }])}
-                      className="text-xs text-brand-500 hover:underline ml-4">+ Add</button>
+                  <div key={p.id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
+                    <div><div className="text-sm">{p.description}</div><div className="text-xs text-gray-400">{p.part_number}</div></div>
+                    <button onClick={() => setPartRows(r => [...r, { ...emptyPart(), description: p.description, part_number: p.part_number ?? '' }])} className="text-xs text-brand-500 hover:underline ml-4">+ Add</button>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {partRows.length > 0 && (
-            <div className="space-y-2">
-              {partRows.map(row => (
-                <div key={row.id} className="grid grid-cols-12 gap-1 items-center">
-                  <input className="col-span-3 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description" onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
-                  <input className="col-span-2 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.part_number} placeholder="Part no." onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, part_number: e.target.value }))} />
-                  <input className="col-span-1 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" min="1" value={row.quantity} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
-                  <select className={`col-span-2 border rounded px-1 py-1.5 text-xs ${row.warranty === 'yes' ? 'border-green-300 bg-green-50 text-green-700' : row.warranty === 'no' ? 'border-red-200 bg-red-50 text-red-600' : 'border-gray-200'}`}
-                    value={row.warranty} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, warranty: e.target.value }))}>
-                    <option value="">Warranty?</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
-                  </select>
-                  <label className="col-span-3 flex items-center gap-1.5 text-xs cursor-pointer px-1">
-                    <input type="checkbox" checked={row.save_to_library} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, save_to_library: e.target.checked }))} className="rounded" />
-                    <span className={row.save_to_library ? 'text-brand-600 font-medium' : 'text-gray-400'}>{row.save_to_library ? 'Will save' : 'Save?'}</span>
-                  </label>
-                  <button onClick={() => setPartRows(partRows.filter(r => r.id !== row.id))} className="col-span-1 text-gray-300 hover:text-red-400 text-base text-center">x</button>
-                </div>
-              ))}
+          {partRows.map(row => (
+            <div key={row.id} className="grid grid-cols-12 gap-1 items-center">
+              <input className="col-span-4 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description" onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
+              <input className="col-span-3 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.part_number} placeholder="Part no." onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, part_number: e.target.value }))} />
+              <input className="col-span-1 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" value={row.quantity} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
+              <select className="col-span-3 border border-gray-200 rounded px-1 py-1.5 text-xs" value={row.warranty} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, warranty: e.target.value }))}>
+                <option value="">Warranty?</option><option value="yes">Yes</option><option value="no">No</option><option value="na">N/A</option>
+              </select>
+              <button onClick={() => setPartRows(partRows.filter(r => r.id !== row.id))} className="col-span-1 text-gray-300 hover:text-red-400 text-base text-center">x</button>
             </div>
-          )}
-          <button onClick={() => setPartRows(r => [...r, emptyPart()])} className="text-xs text-brand-500 hover:underline">+ Add part manually</button>
+          ))}
+          <button onClick={() => setPartRows(r => [...r, emptyPart()])} className="text-xs text-brand-500 hover:underline">+ Add part</button>
         </div>
       )}
 
-      {/* Photos */}
-      {activeSection === (isCommissioning ? 7 : 6) && (
+      {/* GAS: Photos */}
+      {!isPressureGauge && activeSection === (isCommissioning ? 7 : 6) && (
         <div className="space-y-4">
-          <div>
-            <h2 className="font-semibold text-gray-800 text-sm">Photos</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Add up to 5 photos from your phone.</p>
-          </div>
+          <div><h2 className="font-semibold text-gray-800 text-sm">Photos</h2><p className="text-xs text-gray-400">Up to 5 photos.</p></div>
           <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center">
-            <input type="file" accept="image/*" multiple capture="environment"
-              className="hidden" id="photo-upload"
+            <input type="file" accept="image/*" multiple capture="environment" className="hidden" id="photo-upload"
               onChange={e => {
                 const files = Array.from(e.target.files || []).slice(0, 5)
-                setPhotos(files)
-                setPhotoUrls(files.map(f => URL.createObjectURL(f)))
+                setPhotos(files); setPhotoUrls(files.map(f => URL.createObjectURL(f)))
               }} />
             <label htmlFor="photo-upload" className="cursor-pointer">
               <div className="text-3xl mb-2">📷</div>
               <div className="text-sm text-gray-600 font-medium">Tap to take or select photos</div>
-              <div className="text-xs text-gray-400 mt-1">Max 5 photos · JPG, PNG</div>
             </label>
           </div>
           {photoUrls.length > 0 && (
             <div className="grid grid-cols-3 gap-2">
               {photoUrls.map((url, i) => (
                 <div key={i} className="relative">
-                  <img src={url} alt={`Photo ${i+1}`} className="w-full h-24 object-cover rounded-lg" />
-                  <button onClick={() => {
-                    setPhotos(p => p.filter((_,idx)=>idx!==i))
-                    setPhotoUrls(u => u.filter((_,idx)=>idx!==i))
-                  }} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">x</button>
+                  <img src={url} alt="" className="w-full h-24 object-cover rounded-lg" />
+                  <button onClick={() => { setPhotos(p => p.filter((_, idx) => idx !== i)); setPhotoUrls(u => u.filter((_, idx) => idx !== i)) }}
+                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">x</button>
                 </div>
               ))}
             </div>
           )}
-          <p className="text-xs text-gray-400">{photos.length}/5 photos selected</p>
         </div>
       )}
 
-      {/* Sign-off */}
-      {activeSection === (isCommissioning ? 8 : 7) && (
+      {/* GAS: Sign-off */}
+      {!isPressureGauge && activeSection === (isCommissioning ? 8 : 7) && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Sign-off & send</h2>
           <div className="card p-4 space-y-2 text-xs">
-            <div className="flex justify-between"><span className="text-gray-500">Visit type</span>
-              <span className={`font-medium ${isCommissioning ? 'text-green-600' : 'text-brand-600'}`}>
-                {visitType === 'commissioning' ? '🆕 Commissioning' : visitType === 'service' ? '🔧 Service & Calibration' : visitType === 'calibration' ? '📊 Calibration only' : '🛠 Repair only'}
-              </span>
-            </div>
-            <div className="flex justify-between"><span className="text-gray-500">Instrument</span><span className="font-medium">{selInstrument?.name ?? '-'}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Customer</span><span className="font-medium">{selCustomer?.name ?? '-'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Instrument</span><span className="font-medium">{selInstrument?.name ?? '—'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Customer</span><span className="font-medium">{selCustomer?.name ?? '—'}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Date</span><span className="font-medium">{visitDate}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Result</span>
               <span className={`font-bold ${overall === 'pass' ? 'text-green-600' : overall === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
-                {overall === 'pass' ? 'PASS ✓' : overall === 'fail' ? 'FAIL ✗' : '-'}
+                {overall === 'pass' ? 'PASS ✓' : overall === 'fail' ? 'FAIL ✗' : '—'}
               </span>
             </div>
-            {isCommissioning && checklist.length > 0 && (
-              <div className="flex justify-between"><span className="text-gray-500">Checklist</span>
-                <span className={`font-medium ${checklist.filter(i=>i.required&&!i.checked).length>0?'text-red-600':'text-green-600'}`}>
-                  {checklist.filter(i=>i.checked).length}/{checklist.length} completed
-                </span>
-              </div>
-            )}
-            {selectedFaults.length > 0 && (
-              <div className="flex justify-between"><span className="text-gray-500">Faults</span><span className="font-medium text-red-600">{selectedFaults.length} recorded</span></div>
-            )}
-            {photos.length > 0 && (
-              <div className="flex justify-between"><span className="text-gray-500">Photos</span><span className="font-medium">{photos.length} attached</span></div>
-            )}
-            <div className="flex justify-between"><span className="text-gray-500">Email to</span><span className="font-medium">{customerEmail || '- no email set'}</span></div>
           </div>
-          <div><label className="label">Customer printed name</label><input className="input" value={custPrintName} onChange={e => setCustPrintName(e.target.value)} placeholder="Print name" /></div>
+          <div><label className="label">Customer printed name</label><input className="input" value={custPrintName} onChange={e => setCustPrintName(e.target.value)} /></div>
           {saveMsg && <div className="text-sm text-brand-600 bg-brand-50 rounded-xl px-4 py-2">{saveMsg}</div>}
-          <div className="space-y-2 pt-2">
-            <button onClick={() => handleSave(false, true)} disabled={saving}
-              className="w-full py-3 rounded-xl border-2 border-amber-400 bg-amber-50 hover:bg-amber-100 text-amber-700 font-semibold text-sm transition-colors disabled:opacity-50">
-              {saving ? 'Saving...' : '💾 Save as draft (review later)'}
+          <div className="space-y-2">
+            <button onClick={() => handleSave(true)} disabled={saving}
+              className="w-full py-3 rounded-xl border-2 border-amber-400 bg-amber-50 text-amber-700 font-semibold text-sm disabled:opacity-50">
+              {saving ? 'Saving...' : '💾 Save as draft'}
             </button>
             {customerEmail && (
-              <button onClick={() => handleSave(true, false)} disabled={saving}
-                className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-700 text-white font-semibold text-sm transition-colors disabled:opacity-50">
-                {saving ? 'Saving...' : '✉ Save & email to customer'}
+              <button onClick={() => handleSave(false)} disabled={saving}
+                className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold text-sm disabled:opacity-50">
+                {saving ? 'Saving...' : '✉ Save & email'}
               </button>
             )}
-            <button onClick={() => handleSave(false, false)} disabled={saving}
-              className="w-full py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm transition-colors disabled:opacity-50">
-              {saving ? 'Saving...' : '✓ Save & complete (no email)'}
+            <button onClick={() => handleSave(false)} disabled={saving}
+              className="w-full py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-medium text-sm disabled:opacity-50">
+              {saving ? 'Saving...' : '✓ Save & complete'}
             </button>
           </div>
         </div>
