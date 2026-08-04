@@ -137,11 +137,20 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   function sectionHeader(title: string) {
     chk(12); y += 4
-    doc.setFillColor(...C.darkGray)
-    doc.rect(M, y, TW, 7, 'F')
-    setFont('bold', 8, C.green)
-    doc.text(title.toUpperCase(), M + 3, y + 4.8)
-    y += 10
+    if (isPressure) {
+      // Light style for pressure - no fill, just green text with underline
+      setFont('bold', 9, C.green)
+      doc.text(title.toUpperCase(), M, y + 5)
+      doc.setDrawColor(...C.green)
+      doc.setLineWidth(0.5)
+      doc.line(M, y + 7, M + TW, y + 7)
+    } else {
+      doc.setFillColor(...C.darkGray)
+      doc.rect(M, y, TW, 7, 'F')
+      setFont('bold', 8, C.green)
+      doc.text(title.toUpperCase(), M + 3, y + 4.8)
+    }
+    y += 11
   }
 
   function fieldPair(l1: string, v1: string, l2: string, v2: string) {
@@ -168,15 +177,25 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   function resultBadge(result: string | null, x: number, cy: number) {
     if (result === 'pass' || result === 'PASS') {
-      doc.setFillColor(...C.pass)
-      doc.roundedRect(x, cy - 3, 14, 5, 1, 1, 'F')
-      setFont('bold', 7, C.white)
-      doc.text('PASS', x + 7, cy + 0.5, { align: 'center' })
+      if (isPressure) {
+        setFont('bold', 7.5, C.pass)
+        doc.text('PASS', x + 7, cy + 0.5, { align: 'center' })
+      } else {
+        doc.setFillColor(...C.pass)
+        doc.roundedRect(x, cy - 3, 14, 5, 1, 1, 'F')
+        setFont('bold', 7, C.white)
+        doc.text('PASS', x + 7, cy + 0.5, { align: 'center' })
+      }
     } else if (result === 'fail' || result === 'FAIL') {
-      doc.setFillColor(...C.fail)
-      doc.roundedRect(x, cy - 3, 14, 5, 1, 1, 'F')
-      setFont('bold', 7, C.white)
-      doc.text('FAIL', x + 7, cy + 0.5, { align: 'center' })
+      if (isPressure) {
+        setFont('bold', 7.5, C.fail)
+        doc.text('FAIL', x + 7, cy + 0.5, { align: 'center' })
+      } else {
+        doc.setFillColor(...C.fail)
+        doc.roundedRect(x, cy - 3, 14, 5, 1, 1, 'F')
+        setFont('bold', 7, C.white)
+        doc.text('FAIL', x + 7, cy + 0.5, { align: 'center' })
+      }
     } else {
       setFont('normal', 8, C.muted)
       doc.text('—', x + 7, cy + 0.5, { align: 'center' })
@@ -339,9 +358,11 @@ export function generateReportPDF(report: ReportData): jsPDF {
   setFont('bold', 13, C.white)
   doc.text('Eurotron Instruments (UK) Ltd', 48, 13)
   setFont('normal', 8.5, C.green)
-  doc.text(isPressure ? 'Pressure Gauge Calibration Certificate' : 'Gas Analyser Calibration Certificate', 48, 21)
-  setFont('normal', 7, [180, 180, 180])
-  doc.text('Instrument Calibration Services', 48, 28)
+  doc.text(isPressure ? 'Calibration Certificate' : 'Gas Analyser Calibration Certificate', 48, 21)
+  if (!isPressure) {
+    setFont('normal', 7, [180, 180, 180])
+    doc.text('Instrument Calibration Services', 48, 28)
+  }
 
   // Certificate number box
   doc.setFillColor(...C.darkGray)
@@ -373,7 +394,9 @@ export function generateReportPDF(report: ReportData): jsPDF {
     isPressure ? '' : 'Visit time',
     isPressure ? '' : (report.visit_time ?? '')
   )
-  fieldPair('Engineer', report.engineer?.full_name ?? '', 'Engineer email', report.engineer?.email ?? '')
+  if (!isPressure) {
+    fieldPair('Engineer', report.engineer?.full_name ?? '', 'Engineer email', report.engineer?.email ?? '')
+  }
   if (report.sage_number) fieldPair('Sage sales number', report.sage_number, '', '')
 
   // ── EQUIPMENT UNDER TEST ───────────────────────────────────────
@@ -405,7 +428,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
       fieldPair(
         'Calibration date',
         report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB') : '—',
-        'Certificate expiry',
+        'Certificate expiry (advisory)',
         new Date(report.cert_expiry_date).toLocaleDateString('en-GB')
       )
     }
@@ -491,11 +514,13 @@ export function generateReportPDF(report: ReportData): jsPDF {
   if (report.overall_result === 'pass' || report.overall_result === 'fail') {
     chk(12)
     const isPass = report.overall_result === 'pass'
-    doc.setFillColor(...(isPass ? [230, 248, 240] : [253, 235, 232]) as [number,number,number])
-    doc.roundedRect(M, y, TW, 9, 2, 2, 'F')
-    doc.setDrawColor(...(isPass ? C.pass : C.fail))
-    doc.setLineWidth(0.5)
-    doc.roundedRect(M, y, TW, 9, 2, 2, 'S')
+    if (!isPressure) {
+      doc.setFillColor(...(isPass ? [230, 248, 240] : [253, 235, 232]) as [number,number,number])
+      doc.roundedRect(M, y, TW, 9, 2, 2, 'F')
+      doc.setDrawColor(...(isPass ? C.pass : C.fail))
+      doc.setLineWidth(0.5)
+      doc.roundedRect(M, y, TW, 9, 2, 2, 'S')
+    }
     setFont('bold', 10, isPass ? C.pass : C.fail)
     doc.text(isPass ? 'Overall result: PASS' : 'Overall result: FAIL', W/2, y + 6, { align: 'center' })
     y += 13
@@ -583,18 +608,30 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   // ── FOOTER ON ALL PAGES ────────────────────────────────────────
   const totalPages = (doc as any).internal.getNumberOfPages()
-  const certTitle = isPressure ? 'Pressure Gauge Calibration Certificate' : 'Gas Analyser Calibration Certificate'
+  const certTitle = isPressure ? 'Calibration Certificate' : 'Gas Analyser Calibration Certificate'
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
-    doc.setFillColor(...C.darkGray)
-    doc.rect(0, 282, W, 15, 'F')
-    doc.setFillColor(...C.green)
-    doc.rect(0, 282, W, 1, 'F')
-    setFont('normal', 6, C.green)
-    doc.text(COMPANY_ADDRESS, W / 2, 288, { align: 'center' })
-    setFont('normal', 6, [150, 150, 150])
-    doc.text(certTitle, M, 293)
-    doc.text(`Page ${i} of ${totalPages}  |  ${report.report_number}`, W - M, 293, { align: 'right' })
+    if (isPressure) {
+      // Light footer for pressure - no black fill
+      doc.setDrawColor(...C.border)
+      doc.setLineWidth(0.5)
+      doc.line(M, 281, W - M, 281)
+      setFont('normal', 6, C.muted)
+      doc.text(COMPANY_ADDRESS, W / 2, 286, { align: 'center' })
+      setFont('normal', 6, [180, 180, 180])
+      doc.text(certTitle, M, 291)
+      doc.text(`Page ${i} of ${totalPages}  |  ${report.report_number}`, W - M, 291, { align: 'right' })
+    } else {
+      doc.setFillColor(...C.darkGray)
+      doc.rect(0, 282, W, 15, 'F')
+      doc.setFillColor(...C.green)
+      doc.rect(0, 282, W, 1, 'F')
+      setFont('normal', 6, C.green)
+      doc.text(COMPANY_ADDRESS, W / 2, 288, { align: 'center' })
+      setFont('normal', 6, [150, 150, 150])
+      doc.text(certTitle, M, 293)
+      doc.text(`Page ${i} of ${totalPages}  |  ${report.report_number}`, W - M, 293, { align: 'right' })
+    }
   }
 
   return doc
