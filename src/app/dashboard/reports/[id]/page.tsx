@@ -83,7 +83,7 @@ export default function ReportDetailPage() {
     supabase.from('service_reports')
       .select(`*, instrument:instruments(*), customer:customers(*),
                engineer:profiles(full_name,email),
-               calibration_records(*), report_parts(*), report_standards(*)`)
+               calibration_records(*), report_parts(*), report_standards(*), pressure_readings(*)`)
       .eq('id', id).single()
       .then(({ data }) => { setReport(data); setLoading(false) })
   }, [id])
