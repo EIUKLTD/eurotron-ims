@@ -7,7 +7,6 @@ interface PressureRow {
   id: string
   applied: string
   reading: string
-  direction: 'up' | 'down'
 }
 
 interface CalRow {
@@ -120,7 +119,9 @@ export default function NewReportPage() {
   const [asLeftBottles, setAsLeftBottles]   = useState<SelectedBottle[]>([{ uid: uid(), stdId: '' }])
 
   // Pressure calibration
-  const [pressureRows, setPressureRows] = useState<PressureRow[]>([])
+  const [isNewUnit, setIsNewUnit]       = useState(false)
+  const [asReceivedRows, setAsReceivedRows] = useState<PressureRow[]>([])
+  const [afterAdjRows, setAfterAdjRows] = useState<PressureRow[]>([])
   const [pressureRefId, setPressureRefId] = useState('')
   const [tempC, setTempC]               = useState('23')
   const [media, setMedia]               = useState('Air')
@@ -128,6 +129,7 @@ export default function NewReportPage() {
   const [procedure, setProcedure]       = useState('IS-09-07-01')
   const [zeroedBefore, setZeroedBefore] = useState(true)
   const [certExpiry, setCertExpiry]     = useState('')
+  const [basisOfTolerance, setBasisOfTolerance] = useState('Manufacturer Specification')
 
   const [partRows, setPartRows]         = useState<PartRow[]>([])
   const [showPartPicker, setShowPartPicker] = useState(false)
@@ -161,32 +163,12 @@ export default function NewReportPage() {
 
   const isPressureGauge = selInstrument?.instrument_category === 'pressure_gauge'
 
-  function doSelectInstrument(inst: any, tmpls?: any[]) {
-    setSelInstrument(inst); setInstrumentId(inst.id)
-    setFirmware(inst.firmware_version ?? '')
-    const cust = inst.customer; const site = inst.site
-    if (cust) { setSelCustomer(cust); setContactName(cust.contact_name ?? ''); setCustomerEmail(cust.contact_email ?? '') }
-    if (site) setSiteLocation([site.name, site.address, site.city, site.postcode].filter(Boolean).join(', '))
-
-    if (inst.instrument_category === 'pressure_gauge') {
-      // Set default cert expiry 12 months from today
-      const expiry = new Date(); expiry.setMonth(expiry.getMonth() + 12)
-      setCertExpiry(expiry.toISOString().split('T')[0])
-      // Generate default pressure points
-      generatePressurePoints(inst)
-    } else {
-      const availableTemplates = tmpls || templates
-      if (availableTemplates.length > 0) doLoadTemplate(availableTemplates[0])
-    }
-  }
-
-  function generatePressurePoints(inst?: any) {
+  function generatePoints(inst?: any): PressureRow[] {
     const instrument = inst || selInstrument
-    if (!instrument) return
+    if (!instrument) return []
     const range = parseFloat(instrument.pressure_range) || 0
     const vac = parseFloat(instrument.vacuum_range) || 0
     const dp = instrument.decimal_places || 2
-
     const points: number[] = []
     if (vac < 0) points.push(vac)
     points.push(0)
@@ -194,41 +176,61 @@ export default function NewReportPage() {
     points.push(parseFloat((range * 0.50).toFixed(dp)))
     points.push(parseFloat((range * 0.75).toFixed(dp)))
     points.push(range)
-    // Down
     points.push(parseFloat((range * 0.75).toFixed(dp)))
     points.push(parseFloat((range * 0.50).toFixed(dp)))
     points.push(parseFloat((range * 0.25).toFixed(dp)))
     points.push(0)
     if (vac < 0) points.push(vac)
-
-    setPressureRows(points.map((p, i) => ({
-      id: uid(),
-      applied: p.toFixed(dp),
-      reading: '',
-      direction: i <= Math.floor(points.length / 2) ? 'up' : 'down'
-    })))
+    return points.map(p => ({ id: uid(), applied: p.toFixed(dp), reading: '' }))
   }
 
-  function calcPressureError(applied: string, reading: string) {
-    if (!reading || !applied || !selInstrument) return { error: '', errorPct: '', result: '' }
+  function doSelectInstrument(inst: any, tmpls?: any[]) {
+    setSelInstrument(inst); setInstrumentId(inst.id)
+    setFirmware(inst.firmware_version ?? '')
+    const cust = inst.customer; const site = inst.site
+    if (cust) { setSelCustomer(cust); setContactName(cust.contact_name ?? ''); setCustomerEmail(cust.contact_email ?? '') }
+    if (site) setSiteLocation([site.name, site.address, site.city, site.postcode].filter(Boolean).join(', '))
+    if (inst.instrument_category === 'pressure_gauge') {
+      const expiry = new Date(); expiry.setMonth(expiry.getMonth() + 12)
+      setCertExpiry(expiry.toISOString().split('T')[0])
+      const pts = generatePoints(inst)
+      setAsReceivedRows(pts)
+      setAfterAdjRows(pts.map(r => ({ ...r, id: uid(), reading: '' })))
+    } else {
+      const availableTemplates = tmpls || templates
+      if (availableTemplates.length > 0) doLoadTemplate(availableTemplates[0])
+    }
+  }
+
+  function calcPressureError(applied: string, reading: string, inst?: any) {
+    const instrument = inst || selInstrument
+    if (!reading || !applied || !instrument) return { error: '', errorPct: '', errorPctTol: '', result: '' }
     const a = parseFloat(applied)
     const r = parseFloat(reading)
-    const range = parseFloat(selInstrument.pressure_range)
-    const acc = parseFloat(selInstrument.accuracy_pct_fs)
-    const dp = selInstrument.decimal_places || 2
-    if (isNaN(a) || isNaN(r) || isNaN(range) || isNaN(acc)) return { error: '', errorPct: '', result: '' }
+    const range = parseFloat(instrument.pressure_range)
+    const acc = parseFloat(instrument.accuracy_pct_fs)
+    const dp = instrument.decimal_places || 2
+    if (isNaN(a) || isNaN(r) || isNaN(range) || isNaN(acc)) return { error: '', errorPct: '', errorPctTol: '', result: '' }
     const err = r - a
     const errPct = (err / range) * 100
     const tol = acc * range / 100
+    const errPctTol = tol > 0 ? (Math.abs(err) / tol) * 100 : 0
     return {
       error: parseFloat(err.toFixed(dp + 2)).toString(),
       errorPct: parseFloat(errPct.toFixed(4)).toString(),
+      errorPctTol: Math.round(errPctTol).toString(),
       result: Math.abs(err) <= tol ? 'PASS' : 'FAIL'
     }
   }
 
-  function pressureOverallResult(): 'pass' | 'fail' | 'na' {
-    const results = pressureRows.filter(r => r.reading).map(r => calcPressureError(r.applied, r.reading).result)
+  function autoRound(val: string, dp: number): string {
+    const n = parseFloat(val)
+    if (isNaN(n)) return val
+    return n.toFixed(dp)
+  }
+
+  function pressureOverallResult(rows: PressureRow[]): 'pass' | 'fail' | 'na' {
+    const results = rows.filter(r => r.reading).map(r => calcPressureError(r.applied, r.reading).result)
     if (!results.length) return 'na'
     return results.some(r => r === 'FAIL') ? 'fail' : 'pass'
   }
@@ -308,10 +310,6 @@ export default function NewReportPage() {
     setSelectedFaults(prev => prev.includes(description) ? prev.filter(f => f !== description) : [...prev, description])
   }
 
-  function toggleChecklistItem(id: string) {
-    setChecklist(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item))
-  }
-
   function loadCommTemplate(templateId: string) {
     const tmpl = commTemplates.find(t => t.id === templateId)
     if (tmpl) setChecklist((tmpl.items || []).map((item: any) => ({ ...item, checked: false, notes: '' })))
@@ -332,9 +330,13 @@ export default function NewReportPage() {
 
   async function handleSave(saveAsDraft = false) {
     if (!instrumentId) { alert('Please select an instrument.'); return }
+    if (isPressureGauge && !pressureRefId) { alert('Please select a reference standard.'); return }
     setSaving(true); setSaveMsg('Saving...')
 
-    const overall = isPressureGauge ? pressureOverallResult() : gasOverallResult()
+    const overallResult = isPressureGauge
+      ? pressureOverallResult(isNewUnit ? afterAdjRows : [...asReceivedRows, ...afterAdjRows])
+      : gasOverallResult()
+
     const faultText = selectedFaults.length > 0 ? selectedFaults.join('\n') : ''
     const fullFindings = [faultText, findings].filter(Boolean).join('\n')
 
@@ -351,7 +353,7 @@ export default function NewReportPage() {
       work_carried_out: workDone || null,
       recommendations: recommendations || null,
       labour_hours: labourHours ? parseFloat(labourHours) : null,
-      overall_result: overall,
+      overall_result: overallResult,
       customer_printed_name: custPrintName || null,
       sage_number: sageNumber || null,
       fault_codes: selectedFaults,
@@ -370,19 +372,28 @@ export default function NewReportPage() {
 
     if (rErr || !report) { alert('Error: ' + rErr?.message); setSaving(false); return }
 
-    // Save pressure readings
-    if (isPressureGauge && pressureRows.length > 0) {
-      const readingInserts = pressureRows
-        .filter(r => r.applied !== '')
-        .map((r, i) => ({
-          report_id: report.id,
-          instrument_id: instrumentId,
+    if (isPressureGauge) {
+      // Save as received readings
+      if (!isNewUnit) {
+        const asRecInserts = asReceivedRows.filter(r => r.applied !== '').map((r, i) => ({
+          report_id: report.id, instrument_id: instrumentId,
           serial_number: selInstrument?.serial_number,
-          sort_order: i,
-          applied_pressure: parseFloat(r.applied),
+          sort_order: i, applied_pressure: parseFloat(r.applied),
           reading: r.reading ? parseFloat(r.reading) : null,
+          phase: 'as_received',
         }))
-      if (readingInserts.length) await supabase.from('pressure_readings').insert(readingInserts)
+        if (asRecInserts.length) await supabase.from('pressure_readings').insert(asRecInserts)
+      }
+
+      // Save after adjustment readings
+      const afterAdjInserts = afterAdjRows.filter(r => r.applied !== '').map((r, i) => ({
+        report_id: report.id, instrument_id: instrumentId,
+        serial_number: selInstrument?.serial_number,
+        sort_order: i, applied_pressure: parseFloat(r.applied),
+        reading: r.reading ? parseFloat(r.reading) : null,
+        phase: 'after_adjustment',
+      }))
+      if (afterAdjInserts.length) await supabase.from('pressure_readings').insert(afterAdjInserts)
 
       // Save reference standard
       if (pressureRefId) {
@@ -394,7 +405,6 @@ export default function NewReportPage() {
         })
       }
     } else {
-      // Gas calibration records
       const calInserts = [
         ...arrivalRows.filter(r => r.parameter).map((r, i) => ({
           report_id: report.id, phase: 'arrival', sort_order: i, parameter: r.parameter,
@@ -424,28 +434,22 @@ export default function NewReportPage() {
       if (stdInserts.length) await supabase.from('report_standards').insert(stdInserts)
     }
 
-    // Parts
     const partInserts = partRows.filter(r => r.description).map(r => ({
       report_id: report.id, description: r.description,
       part_number: r.part_number, quantity: r.quantity, warranty: r.warranty || null
     }))
     if (partInserts.length) await supabase.from('report_parts').insert(partInserts)
 
-    // Photos
     if (photos.length > 0) {
       const urls = await uploadPhotos(report.id)
       if (urls.length > 0) await supabase.from('service_reports').update({ photo_urls: urls }).eq('id', report.id)
     }
 
-    // Update instrument dates
     if (!saveAsDraft) {
-      const updates: any = {
-        last_service_date: visitDate,
-        last_cal_date: visitDate,
+      await supabase.from('instruments').update({
+        last_service_date: visitDate, last_cal_date: visitDate,
         next_cal_date: new Date(new Date(visitDate).setMonth(new Date(visitDate).getMonth() + (selInstrument?.cal_interval_months ?? 12))).toISOString().split('T')[0],
-      }
-      if (!isPressureGauge) updates.firmware_version = firmware || selInstrument?.firmware_version
-      await supabase.from('instruments').update(updates).eq('id', instrumentId)
+      }).eq('id', instrumentId)
     }
 
     setSaving(false); setSaveMsg('Saved!')
@@ -457,13 +461,97 @@ export default function NewReportPage() {
   const isCommissioning = visitType === 'commissioning'
   const gasStandards = standards.filter((s: any) => !s.standard_types || s.standard_types.includes('gas'))
   const pressureStandards = standards.filter((s: any) => s.standard_types?.includes('pressure'))
-  const overall = isPressureGauge ? pressureOverallResult() : gasOverallResult()
+  const dp = selInstrument?.decimal_places || 2
+  const tol = selInstrument ? (selInstrument.accuracy_pct_fs * selInstrument.pressure_range / 100).toFixed(dp) : ''
+  const afterAdjOverall = pressureOverallResult(afterAdjRows)
+  const overall = isPressureGauge ? afterAdjOverall : gasOverallResult()
 
   const sections = isPressureGauge
-    ? ['Instrument', 'Conditions', 'Reference', 'Readings', 'Notes & Parts', 'Sign-off']
+    ? ['Instrument', 'Conditions', 'Reference', isNewUnit ? 'After Calibration' : 'As Received', ...(isNewUnit ? [] : ['After Calibration']), 'Notes', 'Sign-off']
     : isCommissioning
       ? ['Instrument', 'Faults', 'Commissioning', 'On arrival', 'As left', 'Notes', 'Parts', 'Photos', 'Sign-off']
       : ['Instrument', 'Faults', 'On arrival', 'As left', 'Notes', 'Parts', 'Photos', 'Sign-off']
+
+  function PressureTable({ rows, setRows, label, phase }: {
+    rows: PressureRow[]
+    setRows: React.Dispatch<React.SetStateAction<PressureRow[]>>
+    label: string
+    phase: 'as_received' | 'after_adjustment'
+  }) {
+    const overall = pressureOverallResult(rows)
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
+          <button onClick={() => {
+            const pts = generatePoints()
+            if (phase === 'as_received') setAsReceivedRows(pts)
+            else setAfterAdjRows(pts.map(r => ({ ...r, id: uid() })))
+          }} className="text-xs text-brand-500 hover:underline">↺ Reset points</button>
+        </div>
+
+        {tol && (
+          <div className="bg-green-50 border border-green-100 rounded-xl px-4 py-2 text-xs text-green-700">
+            Tolerance: ±{selInstrument?.accuracy_pct_fs}% FS = ±{tol} {selInstrument?.pressure_unit} · Resolution: {Math.pow(10, -dp).toFixed(dp)} {selInstrument?.pressure_unit}
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-xl border border-gray-200">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase">
+                <th className="px-3 py-2 text-left">Applied ({selInstrument?.pressure_unit})</th>
+                <th className="px-3 py-2 text-left">UUT Reading</th>
+                <th className="px-3 py-2 text-left">Error</th>
+                <th className="px-3 py-2 text-left">Error %FS</th>
+                <th className="px-3 py-2 text-left">% of Tol</th>
+                <th className="px-3 py-2 text-left">Result</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map((row, idx) => {
+                const calc = calcPressureError(row.applied, row.reading)
+                return (
+                  <tr key={row.id}>
+                    <td className="px-3 py-1.5">
+                      <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
+                        value={row.applied}
+                        onChange={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, applied: e.target.value } : r))}
+                        onBlur={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, applied: autoRound(e.target.value, dp) } : r))} />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
+                        value={row.reading} placeholder={`e.g. ${row.applied}`}
+                        onChange={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, reading: e.target.value } : r))}
+                        onBlur={e => setRows(prev => prev.map((r, i) => i === idx ? { ...r, reading: autoRound(e.target.value, dp) } : r))} />
+                    </td>
+                    <td className="px-3 py-1.5 font-mono text-gray-600 text-xs">{calc.error || '—'}</td>
+                    <td className="px-3 py-1.5 font-mono text-gray-600 text-xs">{calc.errorPct ? calc.errorPct + '%' : '—'}</td>
+                    <td className="px-3 py-1.5 font-mono text-gray-600 text-xs">{calc.errorPctTol ? calc.errorPctTol + '%' : '—'}</td>
+                    <td className="px-3 py-1.5">
+                      {calc.result === 'PASS' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">PASS</span>
+                       : calc.result === 'FAIL' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">FAIL</span>
+                       : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <button onClick={() => setRows(prev => prev.filter((_, i) => i !== idx))} className="text-gray-300 hover:text-red-400">x</button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <button onClick={() => setRows(prev => [...prev, { id: uid(), applied: '', reading: '' }])} className="text-xs text-brand-500 hover:underline">+ Add row</button>
+        {overall !== 'na' && (
+          <div className={`rounded-xl px-4 py-2 text-sm font-medium text-center ${overall === 'pass' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+            {label}: {overall === 'pass' ? 'PASS ✓' : 'FAIL ✗'}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   function BottleSelector({ bottles, onBottleChange, onAdd, onRemove, stds }: any) {
     return (
@@ -536,7 +624,9 @@ export default function NewReportPage() {
     <div className="p-4 max-w-2xl mx-auto pb-32">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">New {isPressureGauge ? 'calibration certificate' : 'report'}</h1>
+          <h1 className="text-xl font-semibold text-gray-900">
+            {isPressureGauge ? 'New calibration certificate' : 'New service report'}
+          </h1>
           <p className="text-gray-400 text-xs mt-0.5">Eurotron Instruments (UK) Ltd</p>
         </div>
         <div className="text-right">
@@ -560,7 +650,6 @@ export default function NewReportPage() {
       {activeSection === 0 && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Instrument</h2>
-
           {!isPressureGauge && (
             <div>
               <label className="label">Visit type</label>
@@ -579,7 +668,6 @@ export default function NewReportPage() {
               </div>
             </div>
           )}
-
           <div>
             <label className="label">Instrument *</label>
             <select className="input" value={instrumentId} onChange={e => {
@@ -594,7 +682,6 @@ export default function NewReportPage() {
               ))}
             </select>
           </div>
-
           {selInstrument && (
             <div className="bg-brand-50 rounded-xl p-3 text-xs space-y-1">
               <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{selInstrument.name}</span></div>
@@ -603,14 +690,26 @@ export default function NewReportPage() {
               {isPressureGauge && (
                 <>
                   <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.vacuum_range ? selInstrument.vacuum_range + ' to ' : '0 to '}{selInstrument.pressure_range} {selInstrument.pressure_unit}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-medium">±{selInstrument.accuracy_pct_fs}% FS</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Tolerance</span><span className="font-mono font-medium text-green-700">±{(selInstrument.accuracy_pct_fs * selInstrument.pressure_range / 100).toFixed(selInstrument.decimal_places)} {selInstrument.pressure_unit}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Resolution</span><span className="font-mono font-medium">{Math.pow(10, -selInstrument.decimal_places).toFixed(selInstrument.decimal_places)} {selInstrument.pressure_unit}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-medium">±{selInstrument.accuracy_pct_fs}% FS (±{tol} {selInstrument.pressure_unit})</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Resolution</span><span className="font-mono font-medium">{Math.pow(10, -dp).toFixed(dp)} {selInstrument.pressure_unit}</span></div>
                 </>
               )}
-              {!isPressureGauge && (
-                <div className="flex justify-between"><span className="text-gray-500">Next cal due</span><span className="font-medium text-amber-600">{selInstrument.next_cal_date ?? '-'}</span></div>
-              )}
+            </div>
+          )}
+
+          {isPressureGauge && selInstrument && (
+            <div>
+              <label className="label">Is this a new unit? (first calibration)</label>
+              <div className="flex gap-2">
+                <button onClick={() => setIsNewUnit(true)}
+                  className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${isNewUnit ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500'}`}>
+                  ✅ Yes — new unit, calibration only
+                </button>
+                <button onClick={() => setIsNewUnit(false)}
+                  className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${!isNewUnit ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500'}`}>
+                  🔄 No — recalibration (as received + after)
+                </button>
+              </div>
             </div>
           )}
 
@@ -623,9 +722,7 @@ export default function NewReportPage() {
           <div><label className="label">Customer email</label><input className="input" type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} /></div>
           {!isPressureGauge && <div><label className="label">Firmware version</label><input className="input" value={firmware} onChange={e => setFirmware(e.target.value)} /></div>}
           <div><label className="label">Sage sales number</label><input className="input" value={sageNumber} onChange={e => setSageNumber(e.target.value)} /></div>
-          {isPressureGauge && (
-            <div><label className="label">Certificate expiry date</label><input className="input" type="date" value={certExpiry} onChange={e => setCertExpiry(e.target.value)} /></div>
-          )}
+          {isPressureGauge && <div><label className="label">Certificate expiry date</label><input className="input" type="date" value={certExpiry} onChange={e => setCertExpiry(e.target.value)} /></div>}
         </div>
       )}
 
@@ -638,12 +735,22 @@ export default function NewReportPage() {
             <div>
               <label className="label">Media</label>
               <select className="input" value={media} onChange={e => setMedia(e.target.value)}>
-                {['Air','Oil','Water','Nitrogen','Other'].map(m=><option key={m} value={m}>{m}</option>)}
+                {['Air','Oil','Water','Nitrogen','Other'].map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
           </div>
-          <div><label className="label">Procedure</label><input className="input" value={procedure} onChange={e => setProcedure(e.target.value)} /></div>
+          <div><label className="label">Calibration procedure</label><input className="input" value={procedure} onChange={e => setProcedure(e.target.value)} /></div>
           <div><label className="label">Orientation</label><input className="input" value={orientation} onChange={e => setOrientation(e.target.value)} /></div>
+          <div>
+            <label className="label">Basis of tolerance</label>
+            <select className="input" value={basisOfTolerance} onChange={e => setBasisOfTolerance(e.target.value)}>
+              <option>Manufacturer Specification</option>
+              <option>BSEN 837-1</option>
+              <option>BSEN 837-2</option>
+              <option>BSEN 837-3</option>
+              <option>Customer Specification</option>
+            </select>
+          </div>
           <label className="flex items-center gap-3 cursor-pointer">
             <input type="checkbox" checked={zeroedBefore} onChange={e => setZeroedBefore(e.target.checked)} className="w-4 h-4 rounded" />
             <span className="text-sm text-gray-700">Unit was zeroed before calibration</span>
@@ -660,7 +767,7 @@ export default function NewReportPage() {
               No pressure reference standards found. Go to <a href="/dashboard/admin/standards" className="underline">Admin → Ref Standards</a> and add your PACE 5000 with type set to Pressure.
             </div>
           ) : (
-            <div>
+            <>
               <select className={`input ${!pressureRefId ? 'border-amber-300 bg-amber-50' : ''}`} value={pressureRefId} onChange={e => setPressureRefId(e.target.value)}>
                 <option value="">⚠ Select reference standard...</option>
                 {pressureStandards.map((s: any) => <option key={s.id} value={s.id}>{s.description} (S/N: {s.serial_number})</option>)}
@@ -668,111 +775,39 @@ export default function NewReportPage() {
               {pressureRefId && (() => {
                 const ref = pressureStandards.find((s: any) => s.id === pressureRefId)
                 return ref ? (
-                  <div className="mt-2 bg-brand-50 rounded-xl p-3 text-xs space-y-1">
+                  <div className="bg-brand-50 rounded-xl p-3 text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-gray-500">Description</span><span className="font-medium">{ref.description}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{ref.serial_number}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">Certificate no.</span><span className="font-medium">{ref.certificate_no}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">Cal due</span>
-                      <span className={`font-medium ${ref.cal_due_date && new Date(ref.cal_due_date) < new Date() ? 'text-red-600' : 'text-gray-700'}`}>
+                      <span className={`font-medium ${ref.cal_due_date && new Date(ref.cal_due_date) < new Date() ? 'text-red-600 font-bold' : 'text-gray-700'}`}>
                         {ref.cal_due_date || '—'}
-                        {ref.cal_due_date && new Date(ref.cal_due_date) < new Date() && ' ⚠ Overdue!'}
+                        {ref.cal_due_date && new Date(ref.cal_due_date) < new Date() && ' ⚠ OVERDUE!'}
                       </span>
                     </div>
                   </div>
                 ) : null
               })()}
-            </div>
+            </>
           )}
         </div>
       )}
 
-      {/* PRESSURE: Section 3 - Readings */}
-      {isPressureGauge && activeSection === 3 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-gray-800 text-sm">Calibration readings</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Enter UUT reading for each applied pressure point.</p>
-            </div>
-            <button onClick={() => generatePressurePoints()} className="btn-secondary text-xs py-1.5">↺ Reset points</button>
-          </div>
-
-          {selInstrument && (
-            <div className="bg-green-50 border border-green-100 rounded-xl px-4 py-2 text-xs text-green-700">
-              Tolerance: ±{selInstrument.accuracy_pct_fs}% FS = ±{(selInstrument.accuracy_pct_fs * selInstrument.pressure_range / 100).toFixed(selInstrument.decimal_places)} {selInstrument.pressure_unit}
-            </div>
-          )}
-
-          <div className="overflow-x-auto rounded-xl border border-gray-200">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase">
-                  <th className="px-3 py-2 text-left">Dir</th>
-                  <th className="px-3 py-2 text-left">Applied ({selInstrument?.pressure_unit})</th>
-                  <th className="px-3 py-2 text-left">UUT Reading</th>
-                  <th className="px-3 py-2 text-left">Error</th>
-                  <th className="px-3 py-2 text-left">Error %FS</th>
-                  <th className="px-3 py-2 text-left">Result</th>
-                  <th className="px-3 py-2"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pressureRows.map((row, idx) => {
-                  const calc = calcPressureError(row.applied, row.reading)
-                  return (
-                    <tr key={row.id} className={row.direction === 'down' ? 'bg-blue-50/30' : ''}>
-                      <td className="px-3 py-1.5">
-                        <span className={`text-xs font-bold ${row.direction === 'up' ? 'text-green-600' : 'text-blue-600'}`}>
-                          {row.direction === 'up' ? '↑' : '↓'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
-                          value={row.applied}
-                          onChange={e => setPressureRows(prev => prev.map((r, i) => i === idx ? { ...r, applied: e.target.value } : r))} />
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <input type="number" step="any" className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs"
-                          value={row.reading} placeholder="Enter reading"
-                          onChange={e => setPressureRows(prev => prev.map((r, i) => i === idx ? { ...r, reading: e.target.value } : r))} />
-                      </td>
-                      <td className="px-3 py-1.5 font-mono text-gray-600">{calc.error || '—'}</td>
-                      <td className="px-3 py-1.5 font-mono text-gray-600">{calc.errorPct ? calc.errorPct + '%' : '—'}</td>
-                      <td className="px-3 py-1.5">
-                        {calc.result === 'PASS' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">PASS</span>
-                         : calc.result === 'FAIL' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">FAIL</span>
-                         : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <button onClick={() => setPressureRows(prev => prev.filter((_, i) => i !== idx))} className="text-gray-300 hover:text-red-400">x</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex gap-2">
-            <button onClick={() => setPressureRows(prev => [...prev, { id: uid(), applied: '', reading: '', direction: 'up' }])}
-              className="text-xs text-brand-500 hover:underline">+ Add row (↑)</button>
-            <button onClick={() => setPressureRows(prev => [...prev, { id: uid(), applied: '', reading: '', direction: 'down' }])}
-              className="text-xs text-blue-500 hover:underline">+ Add row (↓)</button>
-          </div>
-
-          {overall !== 'na' && (
-            <div className={`rounded-xl px-4 py-3 text-sm font-medium text-center ${overall === 'pass' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-              {overall === 'pass' ? 'Overall result: PASS ✓' : 'Overall result: FAIL ✗'}
-            </div>
-          )}
-        </div>
+      {/* PRESSURE: As Received (only if not new unit) */}
+      {isPressureGauge && !isNewUnit && activeSection === 3 && (
+        <PressureTable rows={asReceivedRows} setRows={setAsReceivedRows} label="As Received (before adjustment)" phase="as_received" />
       )}
 
-      {/* PRESSURE: Section 4 - Notes & Parts */}
-      {isPressureGauge && activeSection === 4 && (
+      {/* PRESSURE: After Adjustment */}
+      {isPressureGauge && activeSection === (isNewUnit ? 3 : 4) && (
+        <PressureTable rows={afterAdjRows} setRows={setAfterAdjRows} label="After Adjustment / Calibration" phase="after_adjustment" />
+      )}
+
+      {/* PRESSURE: Notes */}
+      {isPressureGauge && activeSection === (isNewUnit ? 4 : 5) && (
         <div className="space-y-3">
-          <h2 className="font-semibold text-gray-800 text-sm">Notes & parts</h2>
+          <h2 className="font-semibold text-gray-800 text-sm">Notes</h2>
           <div><label className="label">Notes / observations</label><textarea className="input" rows={4} value={findings} onChange={e => setFindings(e.target.value)} /></div>
-          <div><label className="label">Recommendations</label><textarea className="input" rows={3} value={recommendations} onChange={e => setRecommendations(e.target.value)} /></div>
           <div className="flex items-center justify-between mt-2">
             <h3 className="text-sm font-semibold text-gray-700">Parts used</h3>
             <button onClick={() => setPartRows(r => [...r, emptyPart()])} className="text-xs text-brand-500 hover:underline">+ Add part</button>
@@ -781,15 +816,15 @@ export default function NewReportPage() {
             <div key={row.id} className="grid grid-cols-12 gap-1 items-center">
               <input className="col-span-5 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description" onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
               <input className="col-span-4 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.part_number} placeholder="Part no." onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, part_number: e.target.value }))} />
-              <input className="col-span-2 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" min="1" value={row.quantity} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
+              <input className="col-span-2 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" value={row.quantity} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
               <button onClick={() => setPartRows(partRows.filter(r => r.id !== row.id))} className="col-span-1 text-gray-300 hover:text-red-400 text-base text-center">x</button>
             </div>
           ))}
         </div>
       )}
 
-      {/* PRESSURE: Section 5 - Sign-off */}
-      {isPressureGauge && activeSection === 5 && (
+      {/* PRESSURE: Sign-off */}
+      {isPressureGauge && activeSection === (isNewUnit ? 5 : 6) && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Sign-off</h2>
           <div className="card p-4 space-y-2 text-xs">
@@ -797,9 +832,9 @@ export default function NewReportPage() {
             <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{selInstrument?.serial_number}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Customer</span><span className="font-medium">{selCustomer?.name ?? '—'}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Cal date</span><span className="font-medium">{visitDate}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Expiry date</span><span className="font-medium">{certExpiry || '—'}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Test points</span><span className="font-medium">{pressureRows.filter(r => r.applied).length}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Overall result</span>
+            <div className="flex justify-between"><span className="text-gray-500">Expiry</span><span className="font-medium">{certExpiry || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{isNewUnit ? 'New unit — calibration only' : 'Recalibration — as received + after'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Result</span>
               <span className={`font-bold ${overall === 'pass' ? 'text-green-600' : overall === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
                 {overall === 'pass' ? 'PASS ✓' : overall === 'fail' ? 'FAIL ✗' : '—'}
               </span>
@@ -826,7 +861,7 @@ export default function NewReportPage() {
           <h2 className="font-semibold text-gray-800 text-sm">Faults found on arrival</h2>
           {selectedFaults.length > 0 && (
             <div className="bg-red-50 border border-red-100 rounded-xl p-3">
-              <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault{selectedFaults.length !== 1 ? 's' : ''} selected</p>
+              <p className="text-xs font-semibold text-red-700 mb-1">{selectedFaults.length} fault(s) selected</p>
               <div className="flex flex-wrap gap-1">
                 {selectedFaults.map(f => <span key={f} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{f}</span>)}
               </div>
@@ -851,7 +886,7 @@ export default function NewReportPage() {
         </div>
       )}
 
-      {/* GAS: Commissioning step */}
+      {/* GAS: Commissioning */}
       {!isPressureGauge && isCommissioning && activeSection === 2 && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Commissioning checklist</h2>
@@ -866,16 +901,16 @@ export default function NewReportPage() {
           )}
           {checklist.length > 0 && (
             <>
-              <div className="text-xs text-gray-500">
-                {checklist.filter((i: any) => i.checked).length}/{checklist.length} completed
-              </div>
+              <div className="text-xs text-gray-500">{checklist.filter((i: any) => i.checked).length}/{checklist.length} completed</div>
               {checklistCategories.map(cat => (
                 <div key={cat} className="card p-4">
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{cat}</h3>
                   <div className="space-y-2">
                     {checklist.filter((i: any) => i.category === cat).map((item: any) => (
                       <label key={item.id} className="flex items-start gap-3 cursor-pointer">
-                        <input type="checkbox" checked={item.checked} onChange={() => toggleChecklistItem(item.id)} className="w-4 h-4 rounded mt-0.5" />
+                        <input type="checkbox" checked={item.checked}
+                          onChange={() => setChecklist(prev => prev.map((i: any) => i.id === item.id ? { ...i, checked: !i.checked } : i))}
+                          className="w-4 h-4 rounded mt-0.5" />
                         <span className={`text-sm ${item.checked ? 'text-green-700 line-through' : 'text-gray-700'}`}>{item.item}</span>
                       </label>
                     ))}
