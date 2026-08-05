@@ -129,7 +129,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
   const TW  = W - M * 2
   let y     = 0
 
-  function newPage() { doc.addPage(); y = 14 }
+  function newPage() { doc.addPage(); y = isPressure ? 38 : 14 }
   function chk(need: number) { if (y + need > 272) newPage() }
 
   function setFont(style: 'normal'|'bold', size: number, color: [number,number,number] = C.text) {
@@ -214,9 +214,10 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.setDrawColor(...borderColor)
     doc.setLineWidth(0.4)
     doc.rect(M, y, TW, boxH, 'S')
-    setFont('bold', 8, labelColor)
+    // Use dark gray for labels when printing pressure certs
+    setFont('bold', 8, isPressure ? C.darkGray : labelColor)
     doc.text(label, M + 2, y + 4.5)
-    setFont('normal', 7.5, textColor)
+    setFont('normal', 7.5, C.text)
     doc.text(lines, M + 2, y + 9)
     y += boxH + 3
   }
@@ -650,7 +651,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
       doc.rect(0, 0, W, 30, 'F')
       doc.setFillColor(...C.green)
       doc.rect(0, 28, W, 1.5, 'F')
-      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 8, 4, 28, 12.3)
+      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 8, 3, 28, 12.3)
       doc.setFillColor(248, 248, 248)
       doc.rect(W - 55, 3, 45, 22, 'F')
       doc.setDrawColor(...C.green)
