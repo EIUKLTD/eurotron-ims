@@ -38,7 +38,7 @@ export default function ReportsPage() {
   <Link href="/dashboard/reports/multi-gauge" className="btn-secondary">⚡ Multi-gauge</Link>
   <Link href="/dashboard/reports/new" className="btn-primary">+ New report</Link>
       </div>
-
+  </div>
       <div className="mb-4">
         <input className="input max-w-md" placeholder="Search by report no., customer, instrument, Sage no..."
           value={search} onChange={e=>setSearch(e.target.value)} />
