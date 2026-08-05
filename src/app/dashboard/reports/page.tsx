@@ -34,7 +34,9 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-semibold text-gray-900">Service reports</h1>
           <p className="text-gray-500 text-sm mt-1">{reports.length} reports total</p>
         </div>
-        <Link href="/dashboard/reports/new" className="btn-primary">+ New report</Link>
+       <div className="flex gap-2">
+  <Link href="/dashboard/reports/multi-gauge" className="btn-secondary">⚡ Multi-gauge</Link>
+  <Link href="/dashboard/reports/new" className="btn-primary">+ New report</Link>
       </div>
 
       <div className="mb-4">
