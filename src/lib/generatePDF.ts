@@ -646,25 +646,36 @@ export function generateReportPDF(report: ReportData): jsPDF {
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
     if (isPressure && i > 1) {
-      // Repeat header on subsequent pages
+      // Repeat header on subsequent pages - match page 1 exactly
       doc.setFillColor(255, 255, 255)
-      doc.rect(0, 0, W, 30, 'F')
-      doc.setFillColor(...C.green)
-      doc.rect(0, 28, W, 1.5, 'F')
-      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 8, 3, 28, 12.3)
-      doc.setFillColor(248, 248, 248)
-      doc.rect(W - 55, 3, 45, 22, 'F')
+      doc.rect(0, 0, W, 38, 'F')
       doc.setDrawColor(...C.green)
       doc.setLineWidth(0.5)
-      doc.rect(W - 55, 3, 45, 22, 'S')
-      setFont('normal', 6, C.green)
-      doc.text('CERTIFICATE NUMBER', W - 32, 9, { align: 'center' })
-      setFont('bold', 9, C.darkGray)
-      doc.text(report.report_number, W - 32, 17, { align: 'center' })
-      setFont('bold', 11, C.darkGray)
-      doc.text('Eurotron Instruments (UK) Ltd', 44, 10)
-      setFont('bold', 9, C.darkGray)
-      doc.text('CERTIFICATE OF CALIBRATION', 44, 20)
+      doc.rect(0, 0, W, 38, 'S')
+      doc.setFillColor(...C.green)
+      doc.rect(0, 36, W, 2, 'F')
+      // Logo - same size as page 1
+      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 10, 40, 17.6)
+      // Company name and cert title - same as page 1
+      setFont('bold', 14, C.darkGray)
+      doc.text('Eurotron Instruments (UK) Ltd', 55, 18)
+      setFont('bold', 14, C.darkGray)
+      doc.text('CERTIFICATE OF CALIBRATION', 55, 30)
+      // Certificate number box - same as page 1
+      doc.setFillColor(248, 248, 248)
+      doc.rect(W - 58, 4, 48, 28, 'F')
+      doc.setDrawColor(...C.green)
+      doc.setLineWidth(0.8)
+      doc.rect(W - 58, 4, 48, 28, 'S')
+      setFont('normal', 6.5, C.green)
+      doc.text('CERTIFICATE NUMBER', W - 34, 11, { align: 'center' })
+      setFont('bold', 10, C.darkGray)
+      doc.text(report.report_number, W - 34, 19, { align: 'center' })
+      setFont('normal', 7, C.muted)
+      doc.text(
+        report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '',
+        W - 34, 27, { align: 'center' }
+      )
     }
     if (isPressure) {
       // Light footer for pressure - no black fill
