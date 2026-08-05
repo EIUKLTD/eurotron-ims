@@ -141,8 +141,8 @@ export function generateReportPDF(report: ReportData): jsPDF {
   function sectionHeader(title: string) {
     chk(12); y += 4
     if (isPressure) {
-      // Light style for pressure - no fill, just green text with underline
-      setFont('bold', 9, C.green)
+      // Light style for pressure - dark text with green underline
+      setFont('bold', 9, C.darkGray)
       doc.text(title.toUpperCase(), M, y + 5)
       doc.setDrawColor(...C.green)
       doc.setLineWidth(0.5)
@@ -356,12 +356,12 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.rect(0, 0, W, 38, 'S')
 
     // EiUK Logo - actual PNG image
-    doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 5, 36, 26)
+    doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 10, 40, 17.6)
 
-    setFont('bold', 15, C.darkGray)
-    doc.text('Eurotron Instruments (UK) Ltd', 52, 14)
-    setFont('bold', 13, C.green)
-    doc.text('Calibration Certificate', 52, 26)
+    setFont('bold', 14, C.darkGray)
+    doc.text('Eurotron Instruments (UK) Ltd', 55, 13)
+    setFont('bold', 14, C.green)
+    doc.text('CERTIFICATE OF CALIBRATION', 55, 25)
   } else {
     doc.setFillColor(...C.black)
     doc.rect(0, 0, W, 36, 'F')
@@ -369,7 +369,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.rect(0, 34, W, 2, 'F')
 
     // EiUK Logo - actual PNG image (inverted colours on dark background)
-    doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 5, 32, 24)
+    doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 10, 40, 17.6)
 
     setFont('bold', 13, C.white)
     doc.text('Eurotron Instruments (UK) Ltd', 48, 13)
@@ -412,7 +412,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     )
   }
 
-  y = 42
+  y = isPressure ? 46 : 42
 
   // ── CUSTOMER & SITE ────────────────────────────────────────────
   sectionHeader('Customer & site')
@@ -478,6 +478,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
   }
 
   // ── CALIBRATION RESULTS ────────────────────────────────────────
+  chk(60)
   sectionHeader('Calibration results')
 
   if (isPressure) {
@@ -640,9 +641,30 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   // ── FOOTER ON ALL PAGES ────────────────────────────────────────
   const totalPages = (doc as any).internal.getNumberOfPages()
-  const certTitle = isPressure ? 'Calibration Certificate' : 'Gas Analyser Calibration Certificate'
+  const certTitle = isPressure ? 'Certificate of Calibration' : 'Gas Analyser Calibration Certificate'
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
+    if (isPressure && i > 1) {
+      // Repeat header on subsequent pages
+      doc.setFillColor(255, 255, 255)
+      doc.rect(0, 0, W, 30, 'F')
+      doc.setFillColor(...C.green)
+      doc.rect(0, 28, W, 1.5, 'F')
+      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 5, 28, 12.3)
+      doc.setFillColor(248, 248, 248)
+      doc.rect(W - 58, 2, 48, 24, 'F')
+      doc.setDrawColor(...C.green)
+      doc.setLineWidth(0.5)
+      doc.rect(W - 58, 2, 48, 24, 'S')
+      setFont('normal', 6, C.green)
+      doc.text('CERTIFICATE NUMBER', W - 34, 8, { align: 'center' })
+      setFont('bold', 9, C.darkGray)
+      doc.text(report.report_number, W - 34, 15, { align: 'center' })
+      setFont('bold', 11, C.darkGray)
+      doc.text('Eurotron Instruments (UK) Ltd', 44, 10)
+      setFont('bold', 9, C.green)
+      doc.text('CERTIFICATE OF CALIBRATION', 44, 20)
+    }
     if (isPressure) {
       // Light footer for pressure - no black fill
       doc.setDrawColor(...C.border)
