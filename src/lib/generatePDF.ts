@@ -142,11 +142,11 @@ export function generateReportPDF(report: ReportData): jsPDF {
     chk(12); y += 4
     if (isPressure) {
       // Light style for pressure - dark text with green underline
-      setFont('bold', 9, C.darkGray)
+      setFont('bold', 10, C.darkGray)
       doc.text(title.toUpperCase(), M, y + 5)
       doc.setDrawColor(...C.green)
-      doc.setLineWidth(0.5)
-      doc.line(M, y + 7, M + TW, y + 7)
+      doc.setLineWidth(1)
+      doc.line(M, y + 8, M + TW, y + 8)
     } else {
       doc.setFillColor(...C.darkGray)
       doc.rect(M, y, TW, 7, 'F')
@@ -214,7 +214,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.setDrawColor(...borderColor)
     doc.setLineWidth(0.4)
     doc.rect(M, y, TW, boxH, 'S')
-    setFont('bold', 7.5, labelColor)
+    setFont('bold', 8, labelColor)
     doc.text(label, M + 2, y + 4.5)
     setFont('normal', 7.5, textColor)
     doc.text(lines, M + 2, y + 9)
@@ -360,7 +360,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
     setFont('bold', 14, C.darkGray)
     doc.text('Eurotron Instruments (UK) Ltd', 55, 13)
-    setFont('bold', 14, C.green)
+    setFont('bold', 14, C.darkGray)
     doc.text('CERTIFICATE OF CALIBRATION', 55, 25)
   } else {
     doc.setFillColor(...C.black)
@@ -650,19 +650,19 @@ export function generateReportPDF(report: ReportData): jsPDF {
       doc.rect(0, 0, W, 30, 'F')
       doc.setFillColor(...C.green)
       doc.rect(0, 28, W, 1.5, 'F')
-      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 5, 28, 12.3)
+      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 8, 4, 28, 12.3)
       doc.setFillColor(248, 248, 248)
-      doc.rect(W - 58, 2, 48, 24, 'F')
+      doc.rect(W - 55, 3, 45, 22, 'F')
       doc.setDrawColor(...C.green)
       doc.setLineWidth(0.5)
-      doc.rect(W - 58, 2, 48, 24, 'S')
+      doc.rect(W - 55, 3, 45, 22, 'S')
       setFont('normal', 6, C.green)
-      doc.text('CERTIFICATE NUMBER', W - 34, 8, { align: 'center' })
+      doc.text('CERTIFICATE NUMBER', W - 32, 9, { align: 'center' })
       setFont('bold', 9, C.darkGray)
-      doc.text(report.report_number, W - 34, 15, { align: 'center' })
+      doc.text(report.report_number, W - 32, 17, { align: 'center' })
       setFont('bold', 11, C.darkGray)
       doc.text('Eurotron Instruments (UK) Ltd', 44, 10)
-      setFont('bold', 9, C.green)
+      setFont('bold', 9, C.darkGray)
       doc.text('CERTIFICATE OF CALIBRATION', 44, 20)
     }
     if (isPressure) {
