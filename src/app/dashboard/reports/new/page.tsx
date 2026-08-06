@@ -769,9 +769,16 @@ export default function NewReportPage() {
               <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{selInstrument.name}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Make / model</span><span className="font-medium">{selInstrument.make} {selInstrument.model}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{selInstrument.serial_number}</span></div>
+              {isPressureGauge && (
+                <>
+                  <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.vacuum_range ? selInstrument.vacuum_range + ' to ' : '0 to '}{selInstrument.pressure_range} {selInstrument.pressure_unit}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-medium">±{selInstrument.accuracy_pct_fs}% FS (±{tol} {selInstrument.pressure_unit})</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Resolution</span><span className="font-mono font-medium">{Math.pow(10, -dp).toFixed(dp)} {selInstrument.pressure_unit}</span></div>
+                </>
+              )}
               {isTemperature && (
                 <>
-                  <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{selInstrument.temp_instrument_type || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Instrument type</span><span className="font-medium">{selInstrument.temp_instrument_type || '—'}</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.temp_range_min} to {selInstrument.temp_range_max} °C</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-medium">±{selInstrument.temp_accuracy_value} {selInstrument.temp_accuracy_type === 'celsius' ? '°C' : selInstrument.temp_accuracy_type === 'pct_fs' ? '% FS' : '% RDG'}</span></div>
                   {selInstrument.temp_stability && <div className="flex justify-between"><span className="text-gray-500">Stability</span><span className="font-mono font-medium">±{selInstrument.temp_stability} °C</span></div>}
@@ -796,17 +803,6 @@ export default function NewReportPage() {
             </div>
           )}
 
-
-              {isPressureGauge && (
-                <>
-                  <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.vacuum_range ? selInstrument.vacuum_range + ' to ' : '0 to '}{selInstrument.pressure_range} {selInstrument.pressure_unit}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-medium">±{selInstrument.accuracy_pct_fs}% FS (±{tol} {selInstrument.pressure_unit})</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Resolution</span><span className="font-mono font-medium">{Math.pow(10, -dp).toFixed(dp)} {selInstrument.pressure_unit}</span></div>
-                </>
-              )}
-            </div>
-          )}
-
           {isPressureGauge && selInstrument && (
             <div>
               <label className="label">Is this a new unit? (first calibration)</label>
@@ -825,12 +821,12 @@ export default function NewReportPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">Visit date</label><input className="input" type="date" value={visitDate} onChange={e => setVisitDate(e.target.value)} /></div>
-            <div><label className="label">Visit time</label><input className="input" type="time" value={visitTime} onChange={e => setVisitTime(e.target.value)} /></div>
+            {!isTemperature && <div><label className="label">Visit time</label><input className="input" type="time" value={visitTime} onChange={e => setVisitTime(e.target.value)} /></div>}
           </div>
           <div><label className="label">Site / location</label><input className="input" value={siteLocation} onChange={e => setSiteLocation(e.target.value)} /></div>
           <div><label className="label">Contact person</label><input className="input" value={contactName} onChange={e => setContactName(e.target.value)} /></div>
           <div><label className="label">Customer email</label><input className="input" type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} /></div>
-          {!isPressureGauge && <div><label className="label">Firmware version</label><input className="input" value={firmware} onChange={e => setFirmware(e.target.value)} /></div>}
+          {!isPressureGauge && !isTemperature && <div><label className="label">Firmware version</label><input className="input" value={firmware} onChange={e => setFirmware(e.target.value)} /></div>}
           <div><label className="label">Sage sales number</label><input className="input" value={sageNumber} onChange={e => setSageNumber(e.target.value)} /></div>
           {(isPressureGauge || isTemperature) && <div><label className="label">Certificate expiry date</label><input className="input" type="date" value={certExpiry} onChange={e => setCertExpiry(e.target.value)} /></div>}
         </div>
