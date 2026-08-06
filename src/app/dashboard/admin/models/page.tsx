@@ -63,6 +63,11 @@ export default function ModelsAdminPage() {
       pressure_unit: m.pressure_unit||'bar', accuracy_pct_fs: m.accuracy_pct_fs||'0.05',
       decimal_places: m.decimal_places||'2', gauge_type: m.gauge_type||'Gauge',
       pressure_connection: m.pressure_connection||'1/2" BSP FEMALE',
+      temp_instrument_type: m.temp_instrument_type||'Dry Block',
+      temp_range_min: m.temp_range_min||'', temp_range_max: m.temp_range_max||'',
+      temp_unit: m.temp_unit||'°C', temp_accuracy_type: m.temp_accuracy_type||'celsius',
+      temp_accuracy_value: m.temp_accuracy_value||'', temp_stability: m.temp_stability||'',
+      temp_display_resolution: m.temp_display_resolution||'',
       active: m.active!==false,
     })
     setShowForm(true); window.scrollTo(0,0)
