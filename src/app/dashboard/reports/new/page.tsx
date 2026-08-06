@@ -1025,7 +1025,7 @@ export default function NewReportPage() {
               </tbody>
             </table>
           </div>
-          <button onClick={() => setTempRows(prev => [...prev, { id: uid(), setPoint: '', displayReading: '', sprtReading: '' }])}
+          <button onClick={() => setTempRows(prev => [...prev, { id: uid(), setPoint: '', sprtReading: '', displayAsFound: '', displayAsLeft: '' }])}
             className="text-xs text-brand-500 hover:underline">+ Add row</button>
 
           {tempOverallResult() !== 'na' && (
