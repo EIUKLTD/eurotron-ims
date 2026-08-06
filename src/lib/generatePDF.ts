@@ -122,6 +122,9 @@ export interface ReportData {
 export function generateReportPDF(report: ReportData): jsPDF {
   const isPressure = report.report_type === 'pressure_cal' ||
     report.instrument?.instrument_category === 'pressure_gauge'
+  const isTemperature = report.report_type === 'temperature_cal' ||
+    report.instrument?.instrument_category === 'temperature'
+  const isCalCert = isPressure || isTemperature
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const W   = 210
@@ -129,7 +132,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
   const TW  = W - M * 2
   let y     = 0
 
-  function newPage() { doc.addPage(); y = isPressure ? 38 : 14 }
+  function newPage() { doc.addPage(); y = isCalCert ? 42 : 14 }
   function chk(need: number) { if (y + need > 272) newPage() }
 
   function setFont(style: 'normal'|'bold', size: number, color: [number,number,number] = C.text) {
@@ -140,7 +143,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   function sectionHeader(title: string) {
     chk(12); y += 4
-    if (isPressure) {
+    if (isCalCert) {
       // Light style for pressure - dark text with green underline
       setFont('bold', 10, C.darkGray)
       doc.text(title.toUpperCase(), M, y + 5)
@@ -180,7 +183,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   function resultBadge(result: string | null, x: number, cy: number) {
     if (result === 'pass' || result === 'PASS') {
-      if (isPressure) {
+      if (isCalCert) {
         setFont('bold', 7.5, C.pass)
         doc.text('PASS', x + 7, cy + 0.5, { align: 'center' })
       } else {
@@ -190,7 +193,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
         doc.text('PASS', x + 7, cy + 0.5, { align: 'center' })
       }
     } else if (result === 'fail' || result === 'FAIL') {
-      if (isPressure) {
+      if (isCalCert) {
         setFont('bold', 7.5, C.fail)
         doc.text('FAIL', x + 7, cy + 0.5, { align: 'center' })
       } else {
@@ -346,8 +349,8 @@ export function generateReportPDF(report: ReportData): jsPDF {
   }
 
   // ── HEADER ─────────────────────────────────────────────────────
-  if (isPressure) {
-    // Light header for pressure - white background with green border
+  if (isCalCert) {
+    // Light header for pressure/temperature - white background with green border
     doc.setFillColor(255, 255, 255)
     doc.rect(0, 0, W, 38, 'F')
     doc.setFillColor(...C.green)
@@ -363,7 +366,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
     doc.text('Eurotron Instruments (UK) Ltd', 55, 13)
     setFont('bold', 14, C.darkGray)
     doc.text('CERTIFICATE OF CALIBRATION', 55, 25)
-  } else {
+  } else if (!isTemperature) {
     doc.setFillColor(...C.black)
     doc.rect(0, 0, W, 36, 'F')
     doc.setFillColor(...C.green)
@@ -381,7 +384,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
   }
 
   // Certificate number box
-  if (isPressure) {
+  if (isCalCert) {
     doc.setFillColor(248, 248, 248)
     doc.rect(W - 58, 4, 48, 28, 'F')
     doc.setDrawColor(...C.green)
@@ -413,21 +416,21 @@ export function generateReportPDF(report: ReportData): jsPDF {
     )
   }
 
-  y = isPressure ? 46 : 42
+  y = isCalCert ? 46 : 42
 
   // ── CUSTOMER & SITE ────────────────────────────────────────────
   sectionHeader('Customer & site')
   fieldPair('Customer', report.customer?.name ?? '', 'Site / location', report.site_location ?? '')
-  if (!isPressure) {
+  if (!isPressure && !isTemperature) {
     fieldPair('Contact on site', report.contact_name ?? '', 'Customer phone', report.customer?.contact_phone ?? '')
   }
   fieldPair(
-    isPressure ? 'Date' : 'Visit date',
+    isCalCert ? 'Date' : 'Visit date',
     report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'}) : '',
-    isPressure ? '' : 'Visit time',
-    isPressure ? '' : (report.visit_time ?? '')
+    isCalCert ? '' : 'Visit time',
+    isCalCert ? '' : (report.visit_time ?? '')
   )
-  if (!isPressure) {
+  if (!isPressure && !isTemperature) {
     fieldPair('Engineer', report.engineer?.full_name ?? '', 'Engineer email', report.engineer?.email ?? '')
   }
   if (report.sage_number) fieldPair('Sage sales number', report.sage_number, '', '')
@@ -435,11 +438,11 @@ export function generateReportPDF(report: ReportData): jsPDF {
   // ── EQUIPMENT UNDER TEST ───────────────────────────────────────
   sectionHeader('Unit under test')
   const inst = report.instrument
-  fieldPair('Instrument type', inst?.name ?? '', isPressure ? 'Gauge type' : 'Analyser type', isPressure ? (inst?.gauge_type ?? '') : (inst?.analyser_type ?? ''))
+  fieldPair('Instrument type', inst?.name ?? '', isPressure ? 'Gauge type' : isTemperature ? 'Instrument type' : 'Analyser type', isPressure ? (inst?.gauge_type ?? '') : isTemperature ? (inst?.temp_instrument_type ?? '') : (inst?.analyser_type ?? ''))
   fieldPair('Manufacturer', inst?.make ?? '', 'Model', inst?.model ?? '')
   fieldPair('Serial number', inst?.serial_number ?? '', 'Asset / tag ID', inst?.asset_tag ?? '')
 
-  if (isPressure) {
+  if (isPressure && !isTemperature) {
     const range = inst?.pressure_range
     const vac = inst?.vacuum_range
     const unit = inst?.pressure_unit || 'bar'
@@ -465,6 +468,15 @@ export function generateReportPDF(report: ReportData): jsPDF {
         new Date(report.cert_expiry_date).toLocaleDateString('en-GB')
       )
     }
+  } else if (isTemperature) {
+    const accType = inst?.temp_accuracy_type
+    const accVal = inst?.temp_accuracy_value
+    const accLabel = accType === 'celsius' ? '°C' : accType === 'pct_fs' ? '% FS' : '% RDG'
+    fieldPair('Range', inst?.temp_range_min != null ? `${inst.temp_range_min} to ${inst.temp_range_max} °C` : '—', 'Accuracy', accVal ? `±${accVal} ${accLabel}` : '—')
+    fieldPair('Stability', inst?.temp_stability ? `±${inst.temp_stability} °C` : '—', 'Resolution', inst?.temp_display_resolution ? `${inst.temp_display_resolution} °C` : '—')
+    if (report.cert_expiry_date) {
+      fieldPair('Calibration date', report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB') : '—', 'Certificate expiry (advisory)', new Date(report.cert_expiry_date).toLocaleDateString('en-GB'))
+    }
   } else {
     fieldPair('Firmware at visit', report.firmware_at_visit ?? '', 'Next cal due', inst?.next_cal_date ?? '')
     if (inst?.gases_measured?.length) fieldFull('Gases measured', inst.gases_measured.join(', '))
@@ -482,7 +494,88 @@ export function generateReportPDF(report: ReportData): jsPDF {
   chk(60)
   sectionHeader('Calibration results')
 
-  if (isPressure) {
+  if (isTemperature) {
+    // Temperature traceability
+    infoBox(
+      [252, 252, 240], [200, 190, 120], C.darkGray, C.text,
+      'Traceability statement:',
+      'All measuring equipment used for calibration purposes is traceable to National or Internationally recognised standards.'
+    )
+    infoBox(
+      [235, 243, 255], [180, 210, 240], C.darkGray, C.text,
+      'Test method:',
+      `The Calibration/Verification has been carried out by comparing the readings on the display of the Temperature Calibrator to the ones of a Calibrated SPRT with Temperature Indicator. Measurements were taken on the 6.35 mm bore, measurement zone Bottom.`
+    )
+    referenceStandardsBox(report.report_standards)
+
+    // Temperature readings table
+    const tempReadings = (report as any).temperature_readings || []
+    if (tempReadings.length > 0) {
+      const hasAsFound = tempReadings.some((r: any) => r.display_reading_as_found !== null)
+      const rowH = 6.5
+      const totalNeeded = 8 + 8 + tempReadings.length * rowH + 6
+      if (y + totalNeeded > 272) newPage()
+      setFont('bold', 9, C.text)
+      doc.text(hasAsFound ? 'Calibration Results' : 'Calibration Results', M, y); y += 5
+      const cols = hasAsFound
+        ? [TW*0.10, TW*0.10, TW*0.12, TW*0.12, TW*0.10, TW*0.12, TW*0.12, TW*0.12, TW*0.10]
+        : [TW*0.15, TW*0.15, TW*0.18, TW*0.18, TW*0.15, TW*0.19]
+      const heads = hasAsFound
+        ? ['Set Point', 'SPRT', 'Disp. Found', 'Err Found', 'Res.', 'Disp. Left', 'Err Left', 'Result', '']
+        : ['Set Point (°C)', 'SPRT (°C)', 'Display (°C)', 'Error (°C)', 'Result', '']
+      doc.setFillColor(235, 238, 243)
+      doc.rect(M, y, TW, 8, 'F')
+      let cx = M
+      heads.forEach((h, i) => {
+        setFont('bold', 6.5, C.muted)
+        doc.text(h, cx + 1, y + 5)
+        cx += cols[i]
+      })
+      y += 9
+      tempReadings.forEach((row: any) => {
+        const sprt = row.sprt_reading
+        const dispLeft = row.display_reading
+        const dispFound = row.display_reading_as_found
+        const errLeft = sprt !== null && dispLeft !== null ? dispLeft - sprt : null
+        const errFound = sprt !== null && dispFound !== null ? dispFound - sprt : null
+        const acc = inst?.temp_accuracy_value || 0.5
+        const tolLeft = Math.abs(errLeft || 0) <= acc
+        const tolFound = Math.abs(errFound || 0) <= acc
+        cx = M
+        if (hasAsFound) {
+          const vals = [
+            row.set_point?.toFixed(1) || '—',
+            sprt?.toFixed(4) || '—',
+            dispFound?.toFixed(1) || '—',
+            errFound !== null ? (errFound >= 0 ? '+' : '') + errFound.toFixed(4) : '—',
+            dispFound !== null ? (tolFound ? 'P' : 'F') : '—',
+            dispLeft?.toFixed(1) || '—',
+            errLeft !== null ? (errLeft >= 0 ? '+' : '') + errLeft.toFixed(4) : '—',
+          ]
+          vals.forEach((v, i) => { setFont('normal', 7.5, C.text); doc.text(v, cx + 1, y + 4); cx += cols[i] })
+          if (dispLeft !== null) {
+            setFont('bold', 7.5, tolLeft ? C.pass : C.fail)
+            doc.text(tolLeft ? 'PASS' : 'FAIL', cx + 1, y + 4)
+          }
+        } else {
+          const vals = [
+            row.set_point?.toFixed(1) || '—',
+            sprt?.toFixed(4) || '—',
+            dispLeft?.toFixed(1) || '—',
+            errLeft !== null ? (errLeft >= 0 ? '+' : '') + errLeft.toFixed(4) : '—',
+          ]
+          vals.forEach((v, i) => { setFont('normal', 7.5, C.text); doc.text(v, cx + 1, y + 4); cx += cols[i] })
+          if (dispLeft !== null) {
+            setFont('bold', 7.5, tolLeft ? C.pass : C.fail)
+            doc.text(tolLeft ? 'PASS' : 'FAIL', cx + 1, y + 4)
+          }
+        }
+        y += rowH
+      })
+      y += 4
+    }
+
+  } else if (isPressure) {
     // Pressure traceability
     infoBox(
       [252, 252, 240], [200, 190, 120], [100, 90, 20], [60, 55, 10],
@@ -518,7 +611,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
       y += 11
     }
 
-  } else {
+  } else if (!isTemperature) {
     // Gas traceability
     infoBox(
       [252, 252, 240], [200, 190, 120], [100, 90, 20], [60, 55, 10],
@@ -615,7 +708,7 @@ export function generateReportPDF(report: ReportData): jsPDF {
   }
 
   // ── SIGN-OFF ───────────────────────────────────────────────────
-  if (!isPressure) {
+  if (!isPressure && !isTemperature) {
     chk(50)
     sectionHeader('Sign-off')
     const bw = TW / 2 - 4
@@ -642,42 +735,31 @@ export function generateReportPDF(report: ReportData): jsPDF {
 
   // ── FOOTER ON ALL PAGES ────────────────────────────────────────
   const totalPages = (doc as any).internal.getNumberOfPages()
-  const certTitle = isPressure ? 'Certificate of Calibration' : 'Gas Analyser Calibration Certificate'
+  const certTitle = isCalCert ? 'Certificate of Calibration' : 'Gas Analyser Calibration Certificate'
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
-    if (isPressure && i > 1) {
-      // Repeat header on subsequent pages - match page 1 exactly
+    if (isCalCert && i > 1) {
+      // Repeat header on subsequent pages
       doc.setFillColor(255, 255, 255)
-      doc.rect(0, 0, W, 38, 'F')
+      doc.rect(0, 0, W, 30, 'F')
+      doc.setFillColor(...C.green)
+      doc.rect(0, 28, W, 1.5, 'F')
+      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 8, 3, 28, 12.3)
+      doc.setFillColor(248, 248, 248)
+      doc.rect(W - 55, 3, 45, 22, 'F')
       doc.setDrawColor(...C.green)
       doc.setLineWidth(0.5)
-      doc.rect(0, 0, W, 38, 'S')
-      doc.setFillColor(...C.green)
-      doc.rect(0, 36, W, 2, 'F')
-      // Logo - same size as page 1
-      doc.addImage(EIUK_LOGO_BASE64, 'PNG', 10, 10, 40, 17.6)
-      // Company name and cert title - same as page 1
-      setFont('bold', 14, C.darkGray)
-      doc.text('Eurotron Instruments (UK) Ltd', 55, 18)
-      setFont('bold', 14, C.darkGray)
-      doc.text('CERTIFICATE OF CALIBRATION', 55, 30)
-      // Certificate number box - same as page 1
-      doc.setFillColor(248, 248, 248)
-      doc.rect(W - 58, 4, 48, 28, 'F')
-      doc.setDrawColor(...C.green)
-      doc.setLineWidth(0.8)
-      doc.rect(W - 58, 4, 48, 28, 'S')
-      setFont('normal', 6.5, C.green)
-      doc.text('CERTIFICATE NUMBER', W - 34, 11, { align: 'center' })
-      setFont('bold', 10, C.darkGray)
-      doc.text(report.report_number, W - 34, 19, { align: 'center' })
-      setFont('normal', 7, C.muted)
-      doc.text(
-        report.visit_date ? new Date(report.visit_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '',
-        W - 34, 27, { align: 'center' }
-      )
+      doc.rect(W - 55, 3, 45, 22, 'S')
+      setFont('normal', 6, C.green)
+      doc.text('CERTIFICATE NUMBER', W - 32, 9, { align: 'center' })
+      setFont('bold', 9, C.darkGray)
+      doc.text(report.report_number, W - 32, 17, { align: 'center' })
+      setFont('bold', 11, C.darkGray)
+      doc.text('Eurotron Instruments (UK) Ltd', 44, 10)
+      setFont('bold', 9, C.darkGray)
+      doc.text('CERTIFICATE OF CALIBRATION', 44, 20)
     }
-    if (isPressure) {
+    if (isCalCert) {
       // Light footer for pressure - no black fill
       doc.setDrawColor(...C.border)
       doc.setLineWidth(0.5)
