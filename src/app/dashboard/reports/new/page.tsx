@@ -777,6 +777,26 @@ export default function NewReportPage() {
                   {selInstrument.temp_stability && <div className="flex justify-between"><span className="text-gray-500">Stability</span><span className="font-mono font-medium">±{selInstrument.temp_stability} °C</span></div>}
                 </>
               )}
+            </div>
+          )}
+
+          {isTemperature && selInstrument && (
+            <div>
+              <label className="label">Is this a new unit? (first calibration)</label>
+              <div className="flex gap-2">
+                <button onClick={() => setIsNewTempUnit(true)}
+                  className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${isNewTempUnit ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500'}`}>
+                  ✅ New unit — calibration only
+                </button>
+                <button onClick={() => setIsNewTempUnit(false)}
+                  className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${!isNewTempUnit ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500'}`}>
+                  🔄 Recall — As Found + As Left
+                </button>
+              </div>
+            </div>
+          )}
+
+
               {isPressureGauge && (
                 <>
                   <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.vacuum_range ? selInstrument.vacuum_range + ' to ' : '0 to '}{selInstrument.pressure_range} {selInstrument.pressure_unit}</span></div>
@@ -946,18 +966,6 @@ export default function NewReportPage() {
               {selInstrument.temp_stability && ` · Stability: ±${selInstrument.temp_stability}°C`}
             </div>
           )}
-
-          {/* New unit toggle */}
-          <div className="flex gap-2">
-            <button onClick={() => setIsNewTempUnit(true)}
-              className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${isNewTempUnit ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500'}`}>
-              ✅ New unit — calibration only
-            </button>
-            <button onClick={() => setIsNewTempUnit(false)}
-              className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${!isNewTempUnit ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500'}`}>
-              🔄 Recall — As Found + As Left
-            </button>
-          </div>
 
           <div className="overflow-x-auto rounded-xl border border-gray-200">
             <table className="w-full text-xs">
