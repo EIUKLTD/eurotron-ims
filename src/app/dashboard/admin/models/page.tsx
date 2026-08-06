@@ -5,6 +5,12 @@ import { createClient } from '@/lib/supabase'
 const PRESSURE_UNITS = ['bar','mbar','psi','kPa','MPa','inH2O','mmHg']
 const CONNECTIONS = ['1/4" BSP MALE','1/4" BSP FEMALE','1/2" BSP MALE','1/2" BSP FEMALE','1/4" NPT MALE','1/2" NPT MALE','Other']
 const GAUGE_TYPES = ['Gauge','Absolute','Differential','Compound']
+const TEMP_INSTRUMENT_TYPES = ['Dry Block', 'Portable Liquid Bath', 'Other']
+const TEMP_ACCURACY_TYPES = [
+  { key: 'celsius', label: '±°C value' },
+  { key: 'pct_fs', label: '% of FS' },
+  { key: 'pct_rdg', label: '% of Reading' },
+]
 const ANALYSER_TYPES = ['Flue Gas','Combustion','Emissions','Portable Multi-gas','Fixed Installation','Process Gas']
 const CATEGORIES = [
   { key: 'gas_analyser',   label: '🔬 Gas Analyser' },
@@ -67,6 +73,14 @@ export default function ModelsAdminPage() {
       vacuum_range: form.vacuum_range ? parseFloat(form.vacuum_range) : null,
       accuracy_pct_fs: parseFloat(form.accuracy_pct_fs),
       decimal_places: parseInt(form.decimal_places),
+      temp_instrument_type: form.temp_instrument_type || null,
+      temp_range_min: form.temp_range_min ? parseFloat(form.temp_range_min) : null,
+      temp_range_max: form.temp_range_max ? parseFloat(form.temp_range_max) : null,
+      temp_unit: form.temp_unit || '°C',
+      temp_accuracy_type: form.temp_accuracy_type || null,
+      temp_accuracy_value: form.temp_accuracy_value ? parseFloat(form.temp_accuracy_value) : null,
+      temp_stability: form.temp_stability ? parseFloat(form.temp_stability) : null,
+      temp_display_resolution: form.temp_display_resolution ? parseFloat(form.temp_display_resolution) : null,
       name: form.name || `${form.make} ${form.model}`,
     }
     if (editing) {
@@ -89,6 +103,7 @@ export default function ModelsAdminPage() {
   function set(k:string, v:any) { setForm((f:any)=>({...f,[k]:v})) }
 
   const isPressure = form.instrument_category === 'pressure_gauge'
+  const isTemperature = form.instrument_category === 'temperature'
   const isGas = form.instrument_category === 'gas_analyser'
 
   const filtered = models.filter(m => filter === 'all' || m.instrument_category === filter)
@@ -187,6 +202,35 @@ export default function ModelsAdminPage() {
                   <div className="flex justify-between"><span className="text-gray-500">Tolerance (±)</span><span className="font-mono font-semibold text-brand-700">±{(parseFloat(form.accuracy_pct_fs)*parseFloat(form.pressure_range)/100).toFixed(parseInt(form.decimal_places))} {form.pressure_unit}</span></div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Temperature fields */}
+          {isTemperature && (
+            <div className="space-y-3">
+              <div>
+                <label className="label">Temperature instrument type</label>
+                <select className="input" value={form.temp_instrument_type} onChange={e=>set('temp_instrument_type',e.target.value)}>
+                  {TEMP_INSTRUMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Range min (°C)</label><input className="input" type="number" step="any" value={form.temp_range_min} onChange={e=>set('temp_range_min',e.target.value)} placeholder="e.g. -25" /></div>
+                <div><label className="label">Range max (°C)</label><input className="input" type="number" step="any" value={form.temp_range_max} onChange={e=>set('temp_range_max',e.target.value)} placeholder="e.g. 650" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Accuracy type</label>
+                  <select className="input" value={form.temp_accuracy_type} onChange={e=>set('temp_accuracy_type',e.target.value)}>
+                    {TEMP_ACCURACY_TYPES.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div><label className="label">Accuracy value</label><input className="input" type="number" step="any" value={form.temp_accuracy_value} onChange={e=>set('temp_accuracy_value',e.target.value)} placeholder="e.g. 0.5" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Stability (°C)</label><input className="input" type="number" step="any" value={form.temp_stability} onChange={e=>set('temp_stability',e.target.value)} placeholder="e.g. 0.05" /></div>
+                <div><label className="label">Display resolution (°C)</label><input className="input" type="number" step="any" value={form.temp_display_resolution} onChange={e=>set('temp_display_resolution',e.target.value)} placeholder="e.g. 0.1" /></div>
+              </div>
             </div>
           )}
 
