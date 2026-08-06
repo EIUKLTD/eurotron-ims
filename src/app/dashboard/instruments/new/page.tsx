@@ -8,6 +8,12 @@ const ANALYSER_TYPES = ['Flue Gas','Combustion','Emissions','Portable Multi-gas'
 const PRESSURE_UNITS = ['bar','mbar','psi','kPa','MPa','inH2O','mmHg']
 const CONNECTIONS = ['1/4" BSP MALE','1/4" BSP FEMALE','1/2" BSP MALE','1/2" BSP FEMALE','1/4" NPT MALE','1/2" NPT MALE','Other']
 const GAUGE_TYPES = ['Gauge','Absolute','Differential','Compound']
+const TEMP_INSTRUMENT_TYPES = ['Dry Block', 'Portable Liquid Bath', 'Other']
+const TEMP_ACCURACY_TYPES = [
+  { key: 'celsius', label: '±°C value' },
+  { key: 'pct_fs', label: '% of FS' },
+  { key: 'pct_rdg', label: '% of Reading' },
+]
 const CATEGORIES = [
   { key: 'gas_analyser',   label: '🔬 Gas Analyser' },
   { key: 'pressure_gauge', label: '📊 Pressure Gauge' },
@@ -37,6 +43,11 @@ export default function NewInstrumentPage() {
     decimal_places: 2, pressure_range: '', vacuum_range: '',
     pressure_unit: 'bar', accuracy_pct_fs: 0.05,
     gauge_type: 'Gauge', pressure_connection: '1/2" BSP FEMALE',
+    // Temperature fields
+    temp_instrument_type: 'Dry Block',
+    temp_range_min: '', temp_range_max: '', temp_unit: '°C',
+    temp_accuracy_type: 'celsius', temp_accuracy_value: '',
+    temp_stability: '', temp_display_resolution: '',
   })
 
   useEffect(() => {
@@ -127,6 +138,14 @@ export default function NewInstrumentPage() {
       vacuum_range:    form.vacuum_range    ? parseFloat(form.vacuum_range)    : null,
       accuracy_pct_fs: parseFloat(form.accuracy_pct_fs),
       decimal_places:  parseInt(form.decimal_places),
+      temp_range_min:  form.temp_range_min ? parseFloat(form.temp_range_min) : null,
+      temp_range_max:  form.temp_range_max ? parseFloat(form.temp_range_max) : null,
+      temp_unit:       form.temp_unit || '°C',
+      temp_accuracy_type: form.temp_accuracy_type || null,
+      temp_accuracy_value: form.temp_accuracy_value ? parseFloat(form.temp_accuracy_value) : null,
+      temp_stability:  form.temp_stability ? parseFloat(form.temp_stability) : null,
+      temp_display_resolution: form.temp_display_resolution ? parseFloat(form.temp_display_resolution) : null,
+      temp_instrument_type: form.temp_instrument_type || null,
     })
     setSaving(false)
     if (error) {
@@ -141,6 +160,7 @@ export default function NewInstrumentPage() {
   }
 
   const isPressure = form.instrument_category === 'pressure_gauge'
+  const isTemperature = form.instrument_category === 'temperature'
   const isGasAnalyser = form.instrument_category === 'gas_analyser'
 
   return (
@@ -235,6 +255,48 @@ export default function NewInstrumentPage() {
             <div><label className="label">Serial number</label><input className="input" value={form.serial_number} onChange={e=>set('serial_number',e.target.value)} /></div>
             <div><label className="label">Asset / tag ID</label><input className="input" value={form.asset_tag} onChange={e=>set('asset_tag',e.target.value)} /></div>
           </div>
+
+          {/* Temperature specific */}
+          {isTemperature && (
+            <>
+              <div>
+                <label className="label">Temperature instrument type</label>
+                <select className="input" value={form.temp_instrument_type} onChange={e=>set('temp_instrument_type',e.target.value)}>
+                  {TEMP_INSTRUMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Range min (°C)</label><input className="input" type="number" step="any" value={form.temp_range_min} onChange={e=>set('temp_range_min',e.target.value)} placeholder="e.g. -25" /></div>
+                <div><label className="label">Range max (°C)</label><input className="input" type="number" step="any" value={form.temp_range_max} onChange={e=>set('temp_range_max',e.target.value)} placeholder="e.g. 650" /></div>
+              </div>
+              <div>
+                <label className="label">Accuracy type</label>
+                <select className="input" value={form.temp_accuracy_type} onChange={e=>set('temp_accuracy_type',e.target.value)}>
+                  {TEMP_ACCURACY_TYPES.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">
+                    Accuracy value ({form.temp_accuracy_type === 'celsius' ? '°C' : form.temp_accuracy_type === 'pct_fs' ? '% FS' : '% RDG'})
+                  </label>
+                  <input className="input" type="number" step="any" value={form.temp_accuracy_value} onChange={e=>set('temp_accuracy_value',e.target.value)} placeholder="e.g. 0.5" />
+                </div>
+                <div><label className="label">Stability (°C)</label><input className="input" type="number" step="any" value={form.temp_stability} onChange={e=>set('temp_stability',e.target.value)} placeholder="e.g. 0.05" /></div>
+              </div>
+              <div>
+                <label className="label">Display resolution (°C)</label>
+                <input className="input" type="number" step="any" value={form.temp_display_resolution} onChange={e=>set('temp_display_resolution',e.target.value)} placeholder="e.g. 0.1" />
+              </div>
+              {form.temp_range_min && form.temp_range_max && form.temp_accuracy_value && (
+                <div className="bg-brand-50 rounded-xl p-3 text-xs space-y-1">
+                  <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-semibold text-brand-700">{form.temp_range_min} to {form.temp_range_max} °C</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-semibold text-brand-700">±{form.temp_accuracy_value} {form.temp_accuracy_type === 'celsius' ? '°C' : form.temp_accuracy_type === 'pct_fs' ? '% FS' : '% RDG'}</span></div>
+                  {form.temp_stability && <div className="flex justify-between"><span className="text-gray-500">Stability</span><span className="font-mono font-semibold text-brand-700">±{form.temp_stability} °C</span></div>}
+                </div>
+              )}
+            </>
+          )}
 
           {/* Gas analyser specific */}
           {isGasAnalyser && (
