@@ -36,6 +36,14 @@ interface PartRow {
 
 interface SelectedBottle { uid: string; stdId: string }
 
+interface TempRow {
+  id: string
+  setPoint: string
+  sprtReading: string
+  displayAsFound: string
+  displayAsLeft: string
+}
+
 function uid() { return Math.random().toString(36).slice(2) }
 function emptyPart(): PartRow { return { id: uid(), description: '', part_number: '', quantity: 1, warranty: '' } }
 
@@ -131,6 +139,14 @@ export default function NewReportPage() {
   const [certExpiry, setCertExpiry]     = useState('')
   const [basisOfTolerance, setBasisOfTolerance] = useState('Manufacturer Specification')
 
+  // Temperature calibration
+  const [tempRows, setTempRows]           = useState<TempRow[]>([])
+  const [tempRefId, setTempRefId]         = useState('')
+  const [tempBoreSize, setTempBoreSize]   = useState('6.35')
+  const [tempZone, setTempZone]           = useState('Bottom')
+  const [tempStabilityNote, setTempStabilityNote] = useState('')
+  const [isNewTempUnit, setIsNewTempUnit] = useState(false)
+
   const [partRows, setPartRows]         = useState<PartRow[]>([])
   const [showPartPicker, setShowPartPicker] = useState(false)
   const [partSearch, setPartSearch]     = useState('')
@@ -162,6 +178,7 @@ export default function NewReportPage() {
   }, [])
 
   const isPressureGauge = selInstrument?.instrument_category === 'pressure_gauge'
+  const isTemperature = selInstrument?.instrument_category === 'temperature'
 
   function generatePoints(inst?: any): PressureRow[] {
     const instrument = inst || selInstrument
@@ -190,7 +207,24 @@ export default function NewReportPage() {
     const cust = inst.customer; const site = inst.site
     if (cust) { setSelCustomer(cust); setContactName(cust.contact_name ?? ''); setCustomerEmail(cust.contact_email ?? '') }
     if (site) setSiteLocation([site.name, site.address, site.city, site.postcode].filter(Boolean).join(', '))
-    if (inst.instrument_category === 'pressure_gauge') {
+    if (inst.instrument_category === 'temperature') {
+      const min = parseFloat(inst.temp_range_min) || 0
+      const max = parseFloat(inst.temp_range_max) || 100
+      const res = parseFloat(inst.temp_display_resolution) || 0.1
+      const dp = res < 0.1 ? 2 : res < 1 ? 1 : 0
+      // Generate 5 default points
+      const range = max - min
+      const pts = [
+        min,
+        parseFloat((min + range * 0.25).toFixed(dp)),
+        parseFloat((min + range * 0.5).toFixed(dp)),
+        parseFloat((min + range * 0.75).toFixed(dp)),
+        max
+      ]
+      setTempRows(pts.map(p => ({ id: uid(), setPoint: p.toFixed(dp), sprtReading: '', displayAsFound: '', displayAsLeft: '' })))
+      const expiry = new Date(); expiry.setMonth(expiry.getMonth() + 12)
+      setCertExpiry(expiry.toISOString().split('T')[0])
+    } else if (inst.instrument_category === 'pressure_gauge') {
       const expiry = new Date(); expiry.setMonth(expiry.getMonth() + 12)
       setCertExpiry(expiry.toISOString().split('T')[0])
       const pts = generatePoints(inst)
@@ -227,6 +261,34 @@ export default function NewReportPage() {
     const n = parseFloat(val)
     if (isNaN(n)) return val
     return n.toFixed(dp)
+  }
+
+  function calcTempError(displayReading: string, sprtReading: string) {
+    if (!displayReading || !sprtReading || !selInstrument) return { error: '', result: '' }
+    const disp = parseFloat(displayReading)
+    const sprt = parseFloat(sprtReading)
+    if (isNaN(disp) || isNaN(sprt)) return { error: '', result: '' }
+    const err = disp - sprt
+    const acc = parseFloat(selInstrument.temp_accuracy_value) || 0.5
+    const accType = selInstrument.temp_accuracy_type || 'celsius'
+    let tol = acc
+    if (accType === 'pct_fs') {
+      const range = (parseFloat(selInstrument.temp_range_max) || 100) - (parseFloat(selInstrument.temp_range_min) || 0)
+      tol = acc * range / 100
+    } else if (accType === 'pct_rdg') {
+      tol = Math.abs(parseFloat(sprtReading)) * acc / 100
+    }
+    return {
+      error: (err >= 0 ? '+' : '') + parseFloat(err.toFixed(4)).toString(),
+      result: Math.abs(err) <= tol ? 'PASS' : 'FAIL'
+    }
+  }
+
+  function tempOverallResult(): 'pass' | 'fail' | 'na' {
+    const results = tempRows.filter(r => r.displayAsLeft && r.sprtReading)
+      .map(r => calcTempError(r.displayAsLeft, r.sprtReading).result)
+    if (!results.length) return 'na'
+    return results.some(r => r === 'FAIL') ? 'fail' : 'pass'
   }
 
   function pressureOverallResult(rows: PressureRow[]): 'pass' | 'fail' | 'na' {
@@ -358,7 +420,7 @@ export default function NewReportPage() {
       sage_number: sageNumber || null,
       fault_codes: selectedFaults,
       visit_type: visitType,
-      report_type: isPressureGauge ? 'pressure_cal' : 'service',
+      report_type: isPressureGauge ? 'pressure_cal' : isTemperature ? 'temperature_cal' : 'service',
       commissioning_checklist: checklist.length > 0 ? checklist : null,
       commissioning_notes: commNotes || null,
       cert_expiry_date: certExpiry || null,
@@ -372,7 +434,25 @@ export default function NewReportPage() {
 
     if (rErr || !report) { alert('Error: ' + rErr?.message); setSaving(false); return }
 
-    if (isPressureGauge) {
+    if (isTemperature) {
+      const tempInserts = tempRows.filter(r => r.setPoint).map((r, i) => ({
+        report_id: report.id, instrument_id: instrumentId,
+        serial_number: selInstrument?.serial_number,
+        sort_order: i, set_point: parseFloat(r.setPoint),
+        display_reading: r.displayAsLeft ? parseFloat(r.displayAsLeft) : null,
+        display_reading_as_found: r.displayAsFound ? parseFloat(r.displayAsFound) : null,
+        sprt_reading: r.sprtReading ? parseFloat(r.sprtReading) : null,
+      }))
+      if (tempInserts.length) await supabase.from('temperature_readings').insert(tempInserts)
+      if (tempRefId) {
+        const ref = standards.find((s: any) => s.id === tempRefId)
+        if (ref) await supabase.from('report_standards').insert({
+          report_id: report.id, standard_id: tempRefId,
+          description: ref.description, serial_number: ref.serial_number,
+          certificate_no: ref.certificate_no, cal_due_date: ref.cal_due_date
+        })
+      }
+    } else if (isPressureGauge) {
       // Save as received readings
       if (!isNewUnit) {
         const asRecInserts = asReceivedRows.filter(r => r.applied !== '').map((r, i) => ({
@@ -404,7 +484,7 @@ export default function NewReportPage() {
           certificate_no: ref.certificate_no, cal_due_date: ref.cal_due_date
         })
       }
-    } else {
+    } else if (!isTemperature) {
       const calInserts = [
         ...arrivalRows.filter(r => r.parameter).map((r, i) => ({
           report_id: report.id, phase: 'arrival', sort_order: i, parameter: r.parameter,
@@ -461,12 +541,15 @@ export default function NewReportPage() {
   const isCommissioning = visitType === 'commissioning'
   const gasStandards = standards.filter((s: any) => !s.standard_types || s.standard_types.includes('gas'))
   const pressureStandards = standards.filter((s: any) => s.standard_types?.includes('pressure'))
+  const tempStandards = standards.filter((s: any) => s.standard_types?.includes('temperature'))
   const dp = selInstrument?.decimal_places || 2
   const tol = selInstrument ? (selInstrument.accuracy_pct_fs * selInstrument.pressure_range / 100).toFixed(dp) : ''
   const afterAdjOverall = pressureOverallResult(afterAdjRows)
   const overall = isPressureGauge ? afterAdjOverall : gasOverallResult()
 
-  const sections = isPressureGauge
+  const sections = isTemperature
+    ? ['Instrument', 'Conditions', 'Reference', 'Readings', 'Notes', 'Sign-off']
+    : isPressureGauge
     ? ['Instrument', 'Conditions', 'Reference', isNewUnit ? 'After Calibration' : 'As Received', ...(isNewUnit ? [] : ['After Calibration']), 'Notes', 'Sign-off']
     : isCommissioning
       ? ['Instrument', 'Faults', 'Commissioning', 'On arrival', 'As left', 'Notes', 'Parts', 'Photos', 'Sign-off']
@@ -686,6 +769,14 @@ export default function NewReportPage() {
               <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{selInstrument.name}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Make / model</span><span className="font-medium">{selInstrument.make} {selInstrument.model}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{selInstrument.serial_number}</span></div>
+              {isTemperature && (
+                <>
+                  <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{selInstrument.temp_instrument_type || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.temp_range_min} to {selInstrument.temp_range_max} °C</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Accuracy</span><span className="font-mono font-medium">±{selInstrument.temp_accuracy_value} {selInstrument.temp_accuracy_type === 'celsius' ? '°C' : selInstrument.temp_accuracy_type === 'pct_fs' ? '% FS' : '% RDG'}</span></div>
+                  {selInstrument.temp_stability && <div className="flex justify-between"><span className="text-gray-500">Stability</span><span className="font-mono font-medium">±{selInstrument.temp_stability} °C</span></div>}
+                </>
+              )}
               {isPressureGauge && (
                 <>
                   <div className="flex justify-between"><span className="text-gray-500">Range</span><span className="font-mono font-medium">{selInstrument.vacuum_range ? selInstrument.vacuum_range + ' to ' : '0 to '}{selInstrument.pressure_range} {selInstrument.pressure_unit}</span></div>
@@ -721,7 +812,19 @@ export default function NewReportPage() {
           <div><label className="label">Customer email</label><input className="input" type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} /></div>
           {!isPressureGauge && <div><label className="label">Firmware version</label><input className="input" value={firmware} onChange={e => setFirmware(e.target.value)} /></div>}
           <div><label className="label">Sage sales number</label><input className="input" value={sageNumber} onChange={e => setSageNumber(e.target.value)} /></div>
-          {isPressureGauge && <div><label className="label">Certificate expiry date</label><input className="input" type="date" value={certExpiry} onChange={e => setCertExpiry(e.target.value)} /></div>}
+          {(isPressureGauge || isTemperature) && <div><label className="label">Certificate expiry date</label><input className="input" type="date" value={certExpiry} onChange={e => setCertExpiry(e.target.value)} /></div>}
+        </div>
+      )}
+
+      {/* TEMPERATURE: Section 1 - Conditions */}
+      {isTemperature && activeSection === 1 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold text-gray-800 text-sm">Test conditions</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Bore size (mm)</label><input className="input" value={tempBoreSize} onChange={e => setTempBoreSize(e.target.value)} placeholder="e.g. 6.35" /></div>
+            <div><label className="label">Measurement zone</label><input className="input" value={tempZone} onChange={e => setTempZone(e.target.value)} placeholder="e.g. Bottom" /></div>
+          </div>
+          <div><label className="label">Stability notes</label><input className="input" value={tempStabilityNote} onChange={e => setTempStabilityNote(e.target.value)} placeholder="e.g. Stability ±0.05°C achieved at each point" /></div>
         </div>
       )}
 
@@ -757,6 +860,41 @@ export default function NewReportPage() {
         </div>
       )}
 
+      {/* TEMPERATURE: Section 2 - Reference standard */}
+      {isTemperature && activeSection === 2 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold text-gray-800 text-sm">Reference standard (SPRT)</h2>
+          {tempStandards.length === 0 ? (
+            <div className="bg-amber-50 rounded-xl p-3 text-sm text-amber-700">
+              No temperature reference standards found. Go to <a href="/dashboard/admin/standards" className="underline">Admin → Ref Standards</a> and add your SPRT with type set to Temperature.
+            </div>
+          ) : (
+            <>
+              <select className={`input ${!tempRefId ? 'border-amber-300 bg-amber-50' : ''}`} value={tempRefId} onChange={e => setTempRefId(e.target.value)}>
+                <option value="">⚠ Select SPRT reference...</option>
+                {tempStandards.map((s: any) => <option key={s.id} value={s.id}>{s.description} (S/N: {s.serial_number})</option>)}
+              </select>
+              {tempRefId && (() => {
+                const ref = tempStandards.find((s: any) => s.id === tempRefId)
+                return ref ? (
+                  <div className="bg-brand-50 rounded-xl p-3 text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-gray-500">Description</span><span className="font-medium">{ref.description}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{ref.serial_number}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Certificate no.</span><span className="font-medium">{ref.certificate_no}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Cal due</span>
+                      <span className={`font-medium ${ref.cal_due_date && new Date(ref.cal_due_date) < new Date() ? 'text-red-600 font-bold' : 'text-gray-700'}`}>
+                        {ref.cal_due_date || '—'}
+                        {ref.cal_due_date && new Date(ref.cal_due_date) < new Date() && ' ⚠ OVERDUE!'}
+                      </span>
+                    </div>
+                  </div>
+                ) : null
+              })()}
+            </>
+          )}
+        </div>
+      )}
+
       {/* PRESSURE: Section 2 - Reference standard */}
       {isPressureGauge && activeSection === 2 && (
         <div className="space-y-3">
@@ -789,6 +927,164 @@ export default function NewReportPage() {
               })()}
             </>
           )}
+        </div>
+      )}
+
+      {/* TEMPERATURE: Section 3 - Readings */}
+      {isTemperature && activeSection === 3 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-gray-800 text-sm">Calibration readings</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Set Point → Display Reading → SPRT Reading</p>
+            </div>
+          </div>
+
+          {selInstrument?.temp_accuracy_value && (
+            <div className="bg-green-50 border border-green-100 rounded-xl px-4 py-2 text-xs text-green-700">
+              Tolerance: ±{selInstrument.temp_accuracy_value} {selInstrument.temp_accuracy_type === 'celsius' ? '°C' : selInstrument.temp_accuracy_type === 'pct_fs' ? '% FS' : '% RDG'}
+              {selInstrument.temp_stability && ` · Stability: ±${selInstrument.temp_stability}°C`}
+            </div>
+          )}
+
+          {/* New unit toggle */}
+          <div className="flex gap-2">
+            <button onClick={() => setIsNewTempUnit(true)}
+              className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${isNewTempUnit ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500'}`}>
+              ✅ New unit — calibration only
+            </button>
+            <button onClick={() => setIsNewTempUnit(false)}
+              className={`flex-1 py-2 rounded-xl border-2 text-xs font-medium transition-colors ${!isNewTempUnit ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-500'}`}>
+              🔄 Recall — As Found + As Left
+            </button>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase text-xs">
+                  <th className="px-2 py-2 text-left">Set Point</th>
+                  <th className="px-2 py-2 text-left">SPRT</th>
+                  {!isNewTempUnit && <th className="px-2 py-2 text-left">Disp. Found</th>}
+                  {!isNewTempUnit && <th className="px-2 py-2 text-left">Err Found</th>}
+                  {!isNewTempUnit && <th className="px-2 py-2 text-left">Res. Found</th>}
+                  <th className="px-2 py-2 text-left">{isNewTempUnit ? 'Display' : 'Disp. Left'}</th>
+                  <th className="px-2 py-2 text-left">Err {isNewTempUnit ? '' : 'Left'}</th>
+                  <th className="px-2 py-2 text-left">Result</th>
+                  <th className="px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {tempRows.map((row, idx) => {
+                  const calcFound = calcTempError(row.displayAsFound, row.sprtReading)
+                  const calcLeft  = calcTempError(row.displayAsLeft, row.sprtReading)
+                  return (
+                    <tr key={row.id}>
+                      <td className="px-2 py-1.5">
+                        <input type="number" step="any" className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs"
+                          defaultValue={row.setPoint}
+                          onBlur={e => setTempRows(prev => prev.map((r, i) => i === idx ? { ...r, setPoint: e.target.value } : r))} />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input type="number" step="any" className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs"
+                          defaultValue={row.sprtReading} placeholder="SPRT"
+                          onBlur={e => setTempRows(prev => prev.map((r, i) => i === idx ? { ...r, sprtReading: e.target.value } : r))} />
+                      </td>
+                      {!isNewTempUnit && (
+                        <td className="px-2 py-1.5">
+                          <input type="number" step="any" className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs"
+                            defaultValue={row.displayAsFound} placeholder="Found"
+                            onBlur={e => setTempRows(prev => prev.map((r, i) => i === idx ? { ...r, displayAsFound: e.target.value } : r))} />
+                        </td>
+                      )}
+                      {!isNewTempUnit && <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{calcFound.error || '—'}</td>}
+                      {!isNewTempUnit && (
+                        <td className="px-2 py-1.5">
+                          {calcFound.result === 'PASS' ? <span className="text-xs font-bold text-green-600">P</span>
+                           : calcFound.result === 'FAIL' ? <span className="text-xs font-bold text-red-600">F</span>
+                           : <span className="text-gray-300">—</span>}
+                        </td>
+                      )}
+                      <td className="px-2 py-1.5">
+                        <input type="number" step="any" className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs"
+                          defaultValue={row.displayAsLeft} placeholder="Left"
+                          onBlur={e => setTempRows(prev => prev.map((r, i) => i === idx ? { ...r, displayAsLeft: e.target.value } : r))} />
+                      </td>
+                      <td className="px-2 py-1.5 font-mono text-xs text-gray-500">{calcLeft.error || '—'}</td>
+                      <td className="px-2 py-1.5">
+                        {calcLeft.result === 'PASS' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">PASS</span>
+                         : calcLeft.result === 'FAIL' ? <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">FAIL</span>
+                         : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <button onClick={() => setTempRows(prev => prev.filter((_, i) => i !== idx))} className="text-gray-300 hover:text-red-400">x</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={() => setTempRows(prev => [...prev, { id: uid(), setPoint: '', displayReading: '', sprtReading: '' }])}
+            className="text-xs text-brand-500 hover:underline">+ Add row</button>
+
+          {tempOverallResult() !== 'na' && (
+            <div className={`rounded-xl px-4 py-3 text-sm font-medium text-center ${tempOverallResult() === 'pass' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              {tempOverallResult() === 'pass' ? 'Overall result: PASS ✓' : 'Overall result: FAIL ✗'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TEMPERATURE: Section 4 - Notes */}
+      {isTemperature && activeSection === 4 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold text-gray-800 text-sm">Notes</h2>
+          <div><label className="label">Notes / observations</label><textarea className="input" rows={4} value={findings} onChange={e => setFindings(e.target.value)} /></div>
+          <div className="flex items-center justify-between mt-2">
+            <h3 className="text-sm font-semibold text-gray-700">Parts used</h3>
+            <button onClick={() => setPartRows(r => [...r, emptyPart()])} className="text-xs text-brand-500 hover:underline">+ Add part</button>
+          </div>
+          {partRows.map(row => (
+            <div key={row.id} className="grid grid-cols-12 gap-1 items-center">
+              <input className="col-span-5 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.description} placeholder="Description" onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, description: e.target.value }))} />
+              <input className="col-span-4 border border-gray-200 rounded px-2 py-1.5 text-xs" value={row.part_number} placeholder="Part no." onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, part_number: e.target.value }))} />
+              <input className="col-span-2 border border-gray-200 rounded px-2 py-1.5 text-xs" type="number" value={row.quantity} onChange={e => setPartRows(partRows.map(r => r.id !== row.id ? r : { ...r, quantity: parseInt(e.target.value) || 1 }))} />
+              <button onClick={() => setPartRows(partRows.filter(r => r.id !== row.id))} className="col-span-1 text-gray-300 hover:text-red-400 text-base text-center">x</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* TEMPERATURE: Section 5 - Sign-off */}
+      {isTemperature && activeSection === 5 && (
+        <div className="space-y-4">
+          <h2 className="font-semibold text-gray-800 text-sm">Sign-off</h2>
+          <div className="card p-4 space-y-2 text-xs">
+            <div className="flex justify-between"><span className="text-gray-500">Instrument</span><span className="font-medium">{selInstrument?.name} {selInstrument?.make} {selInstrument?.model}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Serial number</span><span className="font-mono font-medium">{selInstrument?.serial_number}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Customer</span><span className="font-medium">{selCustomer?.name ?? '—'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Cal date</span><span className="font-medium">{visitDate}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Expiry</span><span className="font-medium">{certExpiry || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Test points</span><span className="font-medium">{tempRows.filter(r => r.setPoint).length}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Result</span>
+              <span className={`font-bold ${tempOverallResult() === 'pass' ? 'text-green-600' : tempOverallResult() === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
+                {tempOverallResult() === 'pass' ? 'PASS ✓' : tempOverallResult() === 'fail' ? 'FAIL ✗' : '—'}
+              </span>
+            </div>
+          </div>
+          <div><label className="label">Customer printed name</label><input className="input" value={custPrintName} onChange={e => setCustPrintName(e.target.value)} /></div>
+          {saveMsg && <div className="text-sm text-brand-600 bg-brand-50 rounded-xl px-4 py-2">{saveMsg}</div>}
+          <div className="space-y-2">
+            <button onClick={() => handleSave(true)} disabled={saving}
+              className="w-full py-3 rounded-xl border-2 border-amber-400 bg-amber-50 text-amber-700 font-semibold text-sm disabled:opacity-50">
+              {saving ? 'Saving...' : '💾 Save as draft'}
+            </button>
+            <button onClick={() => handleSave(false)} disabled={saving}
+              className="w-full py-3 rounded-xl bg-brand-500 text-white font-semibold text-sm disabled:opacity-50">
+              {saving ? 'Saving...' : '✓ Complete certificate'}
+            </button>
+          </div>
         </div>
       )}
 
