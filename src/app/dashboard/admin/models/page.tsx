@@ -27,6 +27,10 @@ const emptyForm = {
   pressure_range: '', vacuum_range: '', pressure_unit: 'bar',
   accuracy_pct_fs: '0.05', decimal_places: '2',
   gauge_type: 'Gauge', pressure_connection: '1/2" BSP FEMALE',
+  temp_instrument_type: 'Dry Block',
+  temp_range_min: '', temp_range_max: '', temp_unit: '°C',
+  temp_accuracy_type: 'celsius', temp_accuracy_value: '',
+  temp_stability: '', temp_display_resolution: '',
   active: true,
 }
 
