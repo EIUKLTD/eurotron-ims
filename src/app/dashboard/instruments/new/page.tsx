@@ -103,6 +103,17 @@ export default function NewInstrumentPage() {
       if (m.gauge_type)         set('gauge_type', m.gauge_type)
       if (m.pressure_connection) set('pressure_connection', m.pressure_connection)
     }
+    // Temperature model fields
+    if (m.instrument_category === 'temperature') {
+      if (m.temp_instrument_type)    set('temp_instrument_type', m.temp_instrument_type)
+      if (m.temp_range_min !== null) set('temp_range_min', m.temp_range_min)
+      if (m.temp_range_max !== null) set('temp_range_max', m.temp_range_max)
+      if (m.temp_unit)               set('temp_unit', m.temp_unit)
+      if (m.temp_accuracy_type)      set('temp_accuracy_type', m.temp_accuracy_type)
+      if (m.temp_accuracy_value)     set('temp_accuracy_value', m.temp_accuracy_value)
+      if (m.temp_stability)          set('temp_stability', m.temp_stability)
+      if (m.temp_display_resolution) set('temp_display_resolution', m.temp_display_resolution)
+    }
   }
 
   function toggleGas(g:string) {
