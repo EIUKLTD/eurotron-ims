@@ -277,6 +277,10 @@ export default function ModelsAdminPage() {
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Accuracy</th>}
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Decimals</th>}
                     {catKey === 'gas_analyser' && <th className="px-5 py-2 text-left">Type</th>}
+                    {catKey === 'temperature' && <th className="px-5 py-2 text-left">Type</th>}
+                    {catKey === 'temperature' && <th className="px-5 py-2 text-left">Range</th>}
+                    {catKey === 'temperature' && <th className="px-5 py-2 text-left">Accuracy</th>}
+                    {catKey === 'temperature' && <th className="px-5 py-2 text-left">Stability</th>}
                     <th className="px-5 py-2"></th>
                   </tr>
                 </thead>
@@ -295,6 +299,10 @@ export default function ModelsAdminPage() {
                       {catKey === 'pressure_gauge' && <td className="px-5 py-3 text-xs text-gray-500">±{m.accuracy_pct_fs}% FS</td>}
                       {catKey === 'pressure_gauge' && <td className="px-5 py-3 text-xs text-gray-500">{m.decimal_places} dp</td>}
                       {catKey === 'gas_analyser' && <td className="px-5 py-3 text-xs text-gray-500">{m.analyser_type||'—'}</td>}
+                      {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500">{m.temp_instrument_type||'—'}</td>}
+                      {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500 font-mono">{m.temp_range_min !== null ? `${m.temp_range_min} to ${m.temp_range_max} °C` : '—'}</td>}
+                      {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500">{m.temp_accuracy_value ? `±${m.temp_accuracy_value}${m.temp_accuracy_type === 'celsius' ? '°C' : m.temp_accuracy_type === 'pct_fs' ? '% FS' : '% RDG'}` : '—'}</td>}
+                      {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500">{m.temp_stability ? `±${m.temp_stability}°C` : '—'}</td>}
                       <td className="px-5 py-3 text-right space-x-3">
                         <button onClick={()=>startEdit(m)} className="text-xs text-brand-500 hover:underline">Edit</button>
                         <button onClick={()=>toggleActive(m)} className="text-xs text-amber-500 hover:underline">{m.active===false?'Enable':'Disable'}</button>
