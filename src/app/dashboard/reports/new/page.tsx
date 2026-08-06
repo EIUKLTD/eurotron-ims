@@ -732,7 +732,7 @@ export default function NewReportPage() {
       {activeSection === 0 && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Instrument</h2>
-          {!isPressureGauge && (
+          {!isPressureGauge && !isTemperature && (
             <div>
               <label className="label">Visit type</label>
               <div className="grid grid-cols-2 gap-2">
@@ -1151,7 +1151,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: Section 1 - Faults */}
-      {!isPressureGauge && activeSection === 1 && (
+      {!isPressureGauge && !isTemperature && activeSection === 1 && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Faults found on arrival</h2>
           {selectedFaults.length > 0 && (
@@ -1182,7 +1182,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: Commissioning */}
-      {!isPressureGauge && isCommissioning && activeSection === 2 && (
+      {!isPressureGauge && !isTemperature && isCommissioning && activeSection === 2 && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Commissioning checklist</h2>
           {checklist.length === 0 && (
@@ -1219,7 +1219,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: On arrival */}
-      {!isPressureGauge && activeSection === (isCommissioning ? 3 : 2) && (
+      {!isPressureGauge && !isTemperature && activeSection === (isCommissioning ? 3 : 2) && (
         <div className="space-y-4">
           <div><h2 className="font-semibold text-gray-800 text-sm">On arrival (as found)</h2><p className="text-xs text-gray-400">Leave blank if not installed.</p></div>
           {arrivalRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
@@ -1235,7 +1235,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: As left */}
-      {!isPressureGauge && activeSection === (isCommissioning ? 4 : 3) && (
+      {!isPressureGauge && !isTemperature && activeSection === (isCommissioning ? 4 : 3) && (
         <div className="space-y-4">
           <div><h2 className="font-semibold text-gray-800 text-sm">As left (after service)</h2><p className="text-xs text-gray-400">Leave blank if not installed.</p></div>
           {asLeftRows.length === 0 ? <div className="bg-amber-50 rounded-xl px-4 py-3 text-sm text-amber-700">Please select an instrument first.</div> : (
@@ -1256,7 +1256,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: Notes */}
-      {!isPressureGauge && activeSection === (isCommissioning ? 5 : 4) && (
+      {!isPressureGauge && !isTemperature && activeSection === (isCommissioning ? 5 : 4) && (
         <div className="space-y-3">
           <h2 className="font-semibold text-gray-800 text-sm">Service notes</h2>
           <div><label className="label">Work carried out</label><textarea className="input" rows={4} value={workDone} onChange={e => setWorkDone(e.target.value)} /></div>
@@ -1266,7 +1266,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: Parts */}
-      {!isPressureGauge && activeSection === (isCommissioning ? 6 : 5) && (
+      {!isPressureGauge && !isTemperature && activeSection === (isCommissioning ? 6 : 5) && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800 text-sm">Parts used</h2>
@@ -1305,7 +1305,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: Photos */}
-      {!isPressureGauge && activeSection === (isCommissioning ? 7 : 6) && (
+      {!isPressureGauge && !isTemperature && activeSection === (isCommissioning ? 7 : 6) && (
         <div className="space-y-4">
           <div><h2 className="font-semibold text-gray-800 text-sm">Photos</h2><p className="text-xs text-gray-400">Up to 5 photos.</p></div>
           <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center">
@@ -1334,7 +1334,7 @@ export default function NewReportPage() {
       )}
 
       {/* GAS: Sign-off */}
-      {!isPressureGauge && activeSection === (isCommissioning ? 8 : 7) && (
+      {!isPressureGauge && !isTemperature && activeSection === (isCommissioning ? 8 : 7) && (
         <div className="space-y-4">
           <h2 className="font-semibold text-gray-800 text-sm">Sign-off & send</h2>
           <div className="card p-4 space-y-2 text-xs">
