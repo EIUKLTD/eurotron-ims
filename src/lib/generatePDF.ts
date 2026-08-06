@@ -99,6 +99,14 @@ export interface ReportData {
     gauge_type?: string | null
     pressure_connection?: string | null
     vacuum_range?: number | null
+    temp_instrument_type?: string | null
+    temp_range_min?: number | null
+    temp_range_max?: number | null
+    temp_unit?: string | null
+    temp_accuracy_type?: string | null
+    temp_accuracy_value?: number | null
+    temp_stability?: number | null
+    temp_display_resolution?: number | null
   } | null
   customer: {
     name: string
@@ -115,6 +123,7 @@ export interface ReportData {
   } | null
   calibration_records: CalRecord[]
   pressure_readings?: PressureReading[]
+  temperature_readings?: any[]
   report_parts: ReportPart[]
   report_standards: ReportStandard[]
 }
