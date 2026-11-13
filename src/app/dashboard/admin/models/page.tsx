@@ -11,19 +11,36 @@ const TEMP_ACCURACY_TYPES = [
   { key: 'pct_fs', label: '% of FS' },
   { key: 'pct_rdg', label: '% of Reading' },
 ]
-const ANALYSER_TYPES = ['Flue Gas','Combustion','Emissions','Portable Multi-gas','Fixed Installation','Process Gas']
+const ANALYSER_TYPES = ['Fixed Installation','Portable Multi-gas','Flue Gas','Combustion','Emissions','Process Gas']
+
+// Gases and their default tolerance type
+const GAS_OPTIONS = [
+  { gas: 'CO2',  unit: '%',   tol: 'pct_bottle', defaultTol: 5 },
+  { gas: 'CH4',  unit: '%',   tol: 'pct_bottle', defaultTol: 5 },
+  { gas: 'O2',   unit: '%',   tol: 'pct_bottle', defaultTol: 5 },
+  { gas: 'CO',   unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+  { gas: 'H2S',  unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+  { gas: 'NO',   unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+  { gas: 'NO2',  unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+  { gas: 'SO2',  unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+  { gas: 'H2',   unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+  { gas: 'CxHy', unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+]
+
 const CATEGORIES = [
-  { key: 'gas_analyser',   label: '🔬 Gas Analyser' },
-  { key: 'pressure_gauge', label: '📊 Pressure Gauge' },
-  { key: 'temperature',    label: '🌡 Temperature' },
-  { key: 'flow',           label: '💧 Flow' },
-  { key: 'electrical',     label: '⚡ Electrical' },
-  { key: 'other',          label: '🔧 Other' },
+  { key: 'gas_analyser',          label: '🔬 Gas Analyser (Fixed)' },
+  { key: 'portable_gas_analyser', label: '🔬 Gas Analyser (Portable)' },
+  { key: 'pressure_gauge',        label: '📊 Pressure Gauge' },
+  { key: 'temperature',           label: '🌡 Temperature' },
+  { key: 'flow',                  label: '💧 Flow' },
+  { key: 'electrical',            label: '⚡ Electrical' },
+  { key: 'other',                 label: '🔧 Other' },
 ]
 
 const emptyForm = {
   instrument_category: 'gas_analyser',
   name: '', make: '', model: '', analyser_type: 'Fixed Installation',
+  gas_sensors: [] as any[],
   pressure_range: '', vacuum_range: '', pressure_unit: 'bar',
   accuracy_pct_fs: '0.05', decimal_places: '2',
   gauge_type: 'Gauge', pressure_connection: '1/2" BSP FEMALE',
@@ -36,6 +53,8 @@ const emptyForm = {
 
 export default function ModelsAdminPage() {
   const [models, setModels]     = useState<any[]>([])
+  const [makes, setMakes]       = useState<string[]>([])
+  const [descriptions, setDescs] = useState<{description:string; category:string}[]>([])
   const [loading, setLoading]   = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing]   = useState<string|null>(null)
@@ -45,8 +64,14 @@ export default function ModelsAdminPage() {
   const supabase = createClient()
 
   async function load() {
-    const { data } = await supabase.from('instrument_models').select('*').order('instrument_category').order('make').order('model')
-    setModels(data||[]); setLoading(false)
+    const [{ data: m }, { data: mk }, { data: ds }] = await Promise.all([
+      supabase.from('instrument_models').select('*').order('instrument_category').order('make').order('model'),
+      supabase.from('instrument_makes').select('make').order('make'),
+      supabase.from('instrument_descriptions').select('description, category').order('description'),
+    ])
+    setModels(m||[]); setLoading(false)
+    setMakes((mk||[]).map((r:any)=>r.make))
+    setDescs(ds||[])
   }
 
   useEffect(()=>{ load() },[])
@@ -59,6 +84,7 @@ export default function ModelsAdminPage() {
       instrument_category: m.instrument_category || 'gas_analyser',
       name: m.name||'', make: m.make||'', model: m.model||'',
       analyser_type: m.analyser_type||'Fixed Installation',
+      gas_sensors: m.gas_sensors || [],
       pressure_range: m.pressure_range||'', vacuum_range: m.vacuum_range||'',
       pressure_unit: m.pressure_unit||'bar', accuracy_pct_fs: m.accuracy_pct_fs||'0.05',
       decimal_places: m.decimal_places||'2', gauge_type: m.gauge_type||'Gauge',
@@ -78,6 +104,7 @@ export default function ModelsAdminPage() {
     setSaving(true)
     const payload = {
       ...form,
+      gas_sensors: form.gas_sensors || [],
       pressure_range: form.pressure_range ? parseFloat(form.pressure_range) : null,
       vacuum_range: form.vacuum_range ? parseFloat(form.vacuum_range) : null,
       accuracy_pct_fs: parseFloat(form.accuracy_pct_fs),
@@ -111,9 +138,37 @@ export default function ModelsAdminPage() {
 
   function set(k:string, v:any) { setForm((f:any)=>({...f,[k]:v})) }
 
+  // Gas sensor management
+  function addGasSensor() {
+    const defaults = GAS_OPTIONS[0]
+    const newSensor = { gas: defaults.gas, unit: defaults.unit, nominal: '', tolerance_type: defaults.tol, tolerance_value: defaults.defaultTol }
+    setForm((f:any) => ({ ...f, gas_sensors: [...(f.gas_sensors||[]), newSensor] }))
+  }
+
+  function updateSensor(idx: number, field: string, value: any) {
+    setForm((f:any) => {
+      const sensors = [...(f.gas_sensors||[])]
+      sensors[idx] = { ...sensors[idx], [field]: value }
+      // If gas changed, update unit and default tolerance type
+      if (field === 'gas') {
+        const opt = GAS_OPTIONS.find(g => g.gas === value)
+        if (opt) {
+          sensors[idx].unit = opt.unit
+          sensors[idx].tolerance_type = opt.tol
+          sensors[idx].tolerance_value = opt.defaultTol
+        }
+      }
+      return { ...f, gas_sensors: sensors }
+    })
+  }
+
+  function removeSensor(idx: number) {
+    setForm((f:any) => ({ ...f, gas_sensors: f.gas_sensors.filter((_:any, i:number) => i !== idx) }))
+  }
+
   const isPressure = form.instrument_category === 'pressure_gauge'
   const isTemperature = form.instrument_category === 'temperature'
-  const isGas = form.instrument_category === 'gas_analyser'
+  const isGas = form.instrument_category === 'gas_analyser' || form.instrument_category === 'portable_gas_analyser'
 
   const filtered = models.filter(m => filter === 'all' || m.instrument_category === filter)
   const grouped = CATEGORIES.reduce((acc, cat) => {
@@ -150,22 +205,97 @@ export default function ModelsAdminPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 mb-3">
-            <div><label className="label">Make *</label><input className="input" value={form.make} onChange={e=>set('make',e.target.value)} placeholder="e.g. Wika, Druck, MRU" /></div>
-            <div><label className="label">Model *</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} placeholder="e.g. EN 837-1, PACE 5000" /></div>
+            {/* Make - dropdown from instrument_makes */}
+            <div>
+              <label className="label">Make *</label>
+              <select className="input" value={form.make} onChange={e=>set('make',e.target.value)}>
+                <option value="">— select —</option>
+                {makes.map(mk=><option key={mk} value={mk}>{mk}</option>)}
+                <option value="__other__">Other (type below)</option>
+              </select>
+              {(form.make === '__other__' || (form.make && !makes.includes(form.make))) && (
+                <input className="input mt-2" value={form.make === '__other__' ? '' : form.make}
+                  onChange={e=>set('make',e.target.value)} placeholder="Type make name..." />
+              )}
+            </div>
+            <div><label className="label">Model number *</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} placeholder="e.g. EN 837-1, PACE 5000" /></div>
           </div>
 
+          {/* Description - dropdown from instrument_descriptions, filters by category */}
           <div className="mb-3">
-            <label className="label">Display name (optional)</label>
-            <input className="input" value={form.name} onChange={e=>set('name',e.target.value)} placeholder={`${form.make||'Make'} ${form.model||'Model'}`} />
+            <label className="label">Description (optional)</label>
+            <select className="input" value={form.name} onChange={e=>set('name',e.target.value)}>
+              <option value="">— select or leave blank —</option>
+              {descriptions
+                .filter(d => !d.category || d.category === form.instrument_category)
+                .map(d=><option key={d.description} value={d.description}>{d.description}</option>)}
+            </select>
           </div>
 
           {/* Gas analyser fields */}
           {isGas && (
-            <div className="mb-3">
-              <label className="label">Analyser type</label>
-              <select className="input" value={form.analyser_type} onChange={e=>set('analyser_type',e.target.value)}>
-                {ANALYSER_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-              </select>
+            <div className="space-y-4">
+              <div>
+                <label className="label">Analyser type</label>
+                <select className="input" value={form.analyser_type} onChange={e=>set('analyser_type',e.target.value)}>
+                  {ANALYSER_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              {/* Gas sensor configuration */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="label mb-0">Gas sensor configuration</label>
+                  <button onClick={addGasSensor} className="text-xs text-brand-500 hover:underline">+ Add gas</button>
+                </div>
+                {(form.gas_sensors||[]).length === 0 ? (
+                  <div className="text-xs text-gray-400 bg-gray-50 rounded-xl p-3 text-center">
+                    No gases configured. Click "+ Add gas" to define which gases this analyser measures.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Header */}
+                    <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
+                      <div className="col-span-2">Gas</div>
+                      <div className="col-span-2">Unit</div>
+                      <div className="col-span-3">Nominal (bottle)</div>
+                      <div className="col-span-3">Tolerance type</div>
+                      <div className="col-span-1">Tol. value</div>
+                      <div className="col-span-1"></div>
+                    </div>
+                    {(form.gas_sensors||[]).map((sensor:any, idx:number) => (
+                      <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-xl p-2">
+                        <div className="col-span-2">
+                          <select className="input text-xs py-1" value={sensor.gas} onChange={e=>updateSensor(idx,'gas',e.target.value)}>
+                            {GAS_OPTIONS.map(g=><option key={g.gas} value={g.gas}>{g.gas}</option>)}
+                          </select>
+                        </div>
+                        <div className="col-span-2">
+                          <input className="input text-xs py-1" value={sensor.unit} onChange={e=>updateSensor(idx,'unit',e.target.value)} placeholder="%" />
+                        </div>
+                        <div className="col-span-3">
+                          <input className="input text-xs py-1" type="number" step="any" value={sensor.nominal||''} onChange={e=>updateSensor(idx,'nominal',e.target.value)} placeholder="e.g. 20" />
+                        </div>
+                        <div className="col-span-3">
+                          <select className="input text-xs py-1" value={sensor.tolerance_type} onChange={e=>updateSensor(idx,'tolerance_type',e.target.value)}>
+                            <option value="fixed">Fixed (±X {sensor.unit})</option>
+                            <option value="pct_bottle">% of bottle value</option>
+                          </select>
+                        </div>
+                        <div className="col-span-1">
+                          <input className="input text-xs py-1" type="number" step="any" value={sensor.tolerance_value||''} onChange={e=>updateSensor(idx,'tolerance_value',e.target.value)} placeholder="5" />
+                        </div>
+                        <div className="col-span-1 flex justify-end">
+                          <button onClick={()=>removeSensor(idx)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-xs text-gray-400 px-1">
+                      Tip: CO2, CH4, O2 → use "% of bottle value". CO, NO, NO2, SO2, H2S → use "Fixed".
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -278,10 +408,11 @@ export default function ModelsAdminPage() {
                 <thead>
                   <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase bg-gray-50">
                     <th className="px-5 py-2 text-left">Make / Model</th>
+                    {(catKey === 'gas_analyser' || catKey === 'portable_gas_analyser') && <th className="px-5 py-2 text-left">Type</th>}
+                    {(catKey === 'gas_analyser' || catKey === 'portable_gas_analyser') && <th className="px-5 py-2 text-left">Gases</th>}
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Range</th>}
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Accuracy</th>}
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Decimals</th>}
-                    {catKey === 'gas_analyser' && <th className="px-5 py-2 text-left">Type</th>}
                     {catKey === 'temperature' && <th className="px-5 py-2 text-left">Type</th>}
                     {catKey === 'temperature' && <th className="px-5 py-2 text-left">Range</th>}
                     {catKey === 'temperature' && <th className="px-5 py-2 text-left">Accuracy</th>}
@@ -296,6 +427,16 @@ export default function ModelsAdminPage() {
                         <div className="font-medium text-gray-900">{m.make} {m.model}</div>
                         {m.name && m.name !== `${m.make} ${m.model}` && <div className="text-xs text-gray-400">{m.name}</div>}
                       </td>
+                      {(catKey === 'gas_analyser' || catKey === 'portable_gas_analyser') && (
+                        <td className="px-5 py-3 text-xs text-gray-500">{m.analyser_type||'—'}</td>
+                      )}
+                      {(catKey === 'gas_analyser' || catKey === 'portable_gas_analyser') && (
+                        <td className="px-5 py-3 text-xs text-gray-500">
+                          {(m.gas_sensors||[]).length > 0
+                            ? (m.gas_sensors||[]).map((s:any)=>s.gas).join(', ')
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      )}
                       {catKey === 'pressure_gauge' && (
                         <td className="px-5 py-3 text-xs text-gray-500 font-mono">
                           {m.pressure_range ? `${m.vacuum_range ? m.vacuum_range + ' to ' : '0 to '}${m.pressure_range} ${m.pressure_unit}` : '—'}
@@ -303,7 +444,6 @@ export default function ModelsAdminPage() {
                       )}
                       {catKey === 'pressure_gauge' && <td className="px-5 py-3 text-xs text-gray-500">±{m.accuracy_pct_fs}% FS</td>}
                       {catKey === 'pressure_gauge' && <td className="px-5 py-3 text-xs text-gray-500">{m.decimal_places} dp</td>}
-                      {catKey === 'gas_analyser' && <td className="px-5 py-3 text-xs text-gray-500">{m.analyser_type||'—'}</td>}
                       {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500">{m.temp_instrument_type||'—'}</td>}
                       {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500 font-mono">{m.temp_range_min !== null ? `${m.temp_range_min} to ${m.temp_range_max} °C` : '—'}</td>}
                       {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500">{m.temp_accuracy_value ? `±${m.temp_accuracy_value}${m.temp_accuracy_type === 'celsius' ? '°C' : m.temp_accuracy_type === 'pct_fs' ? '% FS' : '% RDG'}` : '—'}</td>}
