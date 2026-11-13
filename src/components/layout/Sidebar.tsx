@@ -21,7 +21,7 @@ const adminItems = [
   { href: '/dashboard/admin/standards',  label: 'Ref. Standards', icon: '✓' },
   { href: '/dashboard/admin/parts',      label: 'Parts Library',  icon: '⊞' },
   { href: '/dashboard/admin/templates',  label: 'Cal Templates',  icon: '☰' },
-  { href: '/dashboard/admin/makes',  label: 'Makes',        icon: '🏷' }
+  { href: '/dashboard/admin/makes',  label: 'Makes',        icon: '🏷' },
   { href: '/dashboard/admin/models', label: 'Inst. Models', icon: '⊙' },
   { href: '/dashboard/admin/faults', label: 'Fault Types', icon: '⚠' },
   { href: '/dashboard/admin/Sensors', label: 'Sensor Library', icon: '⊙' },
