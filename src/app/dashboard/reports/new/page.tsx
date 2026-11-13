@@ -83,32 +83,24 @@ function calcError(measured: string, nominal: string, toleranceType: string, tol
   return { error, result }
 }
 
-// Build CalRow[] from instrument model's gas_sensors + assigned standards
-function buildCalRows(model: any, assignedStandards: any[]): CalRow[] {
+// Build CalRow[] from instrument model's gas_sensors + a map of standards by id
+function buildCalRows(model: any, standardsById: Record<string, any>): CalRow[] {
   const sensors: any[] = model?.gas_sensors || []
   if (!sensors.length) return []
-
-  // Find a matching standard for each sensor
-  const gasStandards = assignedStandards.filter(s => (s.standard_types || []).includes('gas'))
 
   return sensors.map((s: any) => {
     const unit = s.unit || ''
     const hasFixed = s.nominal !== '' && s.nominal !== null && s.nominal !== undefined
     const nomType: 'fixed' | 'from_bottle' = hasFixed ? 'fixed' : 'from_bottle'
 
-    // Find bottle providing this gas
-    let bottleStdId = ''
+    // Look up the reference standard directly by bottle_std_id set on the model sensor
+    let bottleStdId = s.bottle_std_id || ''
     let bottleNominal = ''
-    if (nomType === 'from_bottle') {
-      for (const std of gasStandards) {
-        const concs: any[] = std.gas_concentrations || []
-        const match = concs.find((c: any) => c.gas === s.gas)
-        if (match) {
-          bottleStdId = std.id
-          bottleNominal = String(match.concentration)
-          break
-        }
-      }
+    if (bottleStdId && standardsById[bottleStdId]) {
+      const std = standardsById[bottleStdId]
+      const concs: any[] = std.gas_concentrations || []
+      const match = concs.find((c: any) => c.gas === s.gas)
+      if (match) bottleNominal = String(match.concentration)
     }
 
     const nominalVal = hasFixed ? String(s.nominal) : bottleNominal
@@ -254,25 +246,46 @@ export default function NewReportPage() {
     if (inst.customers?.email)        setCustomerEmail(inst.customers.email)
     if (inst.firmware_version)        setFirmware(inst.firmware_version)
 
-    // Load assigned standards and model in parallel
-    const [{ data: stdLinks }, { data: modelData }] = await Promise.all([
+    // Load model first
+    const { data: modelData } = inst.model_id
+      ? await supabase.from('instrument_models').select('*').eq('id', inst.model_id).single()
+      : { data: null }
+
+    setInstModel(modelData || null)
+
+    // Collect all standard IDs referenced by the model's sensors
+    const sensorStdIds: string[] = []
+    if (modelData?.gas_sensors) {
+      for (const s of modelData.gas_sensors) {
+        if (s.bottle_std_id && !sensorStdIds.includes(s.bottle_std_id)) {
+          sensorStdIds.push(s.bottle_std_id)
+        }
+      }
+    }
+
+    // Also load instrument_standards for non-gas references (SPRT, PACE 5000, pressure certs)
+    const [{ data: stdLinks }, { data: sensorStdsData }] = await Promise.all([
       supabase
         .from('instrument_standards')
         .select('standard_id, sort_order, reference_standards(*)')
         .eq('instrument_id', id)
         .order('sort_order'),
-      inst.model_id
-        ? supabase.from('instrument_models').select('*').eq('id', inst.model_id).single()
-        : Promise.resolve({ data: null }),
+      sensorStdIds.length > 0
+        ? supabase.from('reference_standards').select('*').in('id', sensorStdIds)
+        : Promise.resolve({ data: [] }),
     ])
 
     const resolvedStandards = (stdLinks || []).map((l: any) => l.reference_standards).filter(Boolean)
     setInstStandards(resolvedStandards)
-    setInstModel(modelData || null)
+
+    // Build a map of all standards by id (from both sources)
+    const allStdsById: Record<string, any> = {}
+    for (const s of resolvedStandards) allStdsById[s.id] = s
+    for (const s of (sensorStdsData || [])) allStdsById[s.id] = s
 
     // Build calibration rows from model's gas_sensors
     if (modelData && (inst.instrument_category === 'gas_analyser' || inst.instrument_category === 'portable_gas_analyser')) {
-      const rows = buildCalRows(modelData, resolvedStandards)
+      const rows = buildCalRows(modelData, allStdsById)
       setCalRows(rows)
     }
   }
