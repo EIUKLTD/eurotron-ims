@@ -64,26 +64,29 @@ const emptyForm = {
 }
 
 export default function ModelsAdminPage() {
-  const [models, setModels]     = useState<any[]>([])
-  const [makes, setMakes]       = useState<string[]>([])
-  const [descriptions, setDescs] = useState<{description:string; category:string}[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing]   = useState<string|null>(null)
-  const [form, setForm]         = useState<any>(emptyForm)
-  const [saving, setSaving]     = useState(false)
-  const [filter, setFilter]     = useState('all')
+  const [models, setModels]       = useState<any[]>([])
+  const [makes, setMakes]         = useState<string[]>([])
+  const [descriptions, setDescs]  = useState<{description:string; category:string}[]>([])
+  const [refStandards, setRefStds] = useState<any[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [showForm, setShowForm]   = useState(false)
+  const [editing, setEditing]     = useState<string|null>(null)
+  const [form, setForm]           = useState<any>(emptyForm)
+  const [saving, setSaving]       = useState(false)
+  const [filter, setFilter]       = useState('all')
   const supabase = createClient()
 
   async function load() {
-    const [{ data: m }, { data: mk }, { data: ds }] = await Promise.all([
+    const [{ data: m }, { data: mk }, { data: ds }, { data: rs }] = await Promise.all([
       supabase.from('instrument_models').select('*').order('instrument_category').order('make').order('model'),
       supabase.from('instrument_makes').select('make').eq('active', true).order('make'),
       supabase.from('instrument_descriptions').select('description, category').order('description'),
+      supabase.from('reference_standards').select('id, name, standard_types').eq('active', true).order('name'),
     ])
     setModels(m||[]); setLoading(false)
     setMakes((mk||[]).map((r:any)=>r.make))
     setDescs(ds||[])
+    setRefStds(rs||[])
   }
 
   useEffect(()=>{ load() },[])
@@ -276,16 +279,17 @@ export default function ModelsAdminPage() {
                 ) : (
                   <div className="space-y-2">
                     <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
-                      <div className="col-span-3">Parameter</div>
-                      <div className="col-span-2">Unit</div>
+                      <div className="col-span-2">Parameter</div>
+                      <div className="col-span-1">Unit</div>
                       <div className="col-span-2">Nominal</div>
-                      <div className="col-span-3">Tolerance type</div>
+                      <div className="col-span-2">Tolerance type</div>
                       <div className="col-span-1">Tol.</div>
+                      <div className="col-span-3">Reference standard</div>
                       <div className="col-span-1"></div>
                     </div>
                     {(form.gas_sensors||[]).map((sensor:any, idx:number) => (
                       <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-xl p-2">
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           <select className="input text-xs py-1" value={sensor.gas} onChange={e=>updateSensor(idx,'gas',e.target.value)}>
                             {Object.entries(sensorGroups).map(([group, opts]) => (
                               <optgroup key={group} label={group}>
@@ -294,13 +298,13 @@ export default function ModelsAdminPage() {
                             ))}
                           </select>
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-1">
                           <input className="input text-xs py-1" value={sensor.unit} onChange={e=>updateSensor(idx,'unit',e.target.value)} placeholder="%" />
                         </div>
                         <div className="col-span-2">
                           <input className="input text-xs py-1" type="number" step="any" value={sensor.nominal||''} onChange={e=>updateSensor(idx,'nominal',e.target.value)} placeholder="blank=bottle" />
                         </div>
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           <select className="input text-xs py-1" value={sensor.tolerance_type} onChange={e=>updateSensor(idx,'tolerance_type',e.target.value)}>
                             <option value="fixed">Fixed (±X {sensor.unit})</option>
                             <option value="pct_bottle">% of bottle value</option>
@@ -309,13 +313,21 @@ export default function ModelsAdminPage() {
                         <div className="col-span-1">
                           <input className="input text-xs py-1" type="number" step="any" value={sensor.tolerance_value||''} onChange={e=>updateSensor(idx,'tolerance_value',e.target.value)} placeholder="5" />
                         </div>
+                        <div className="col-span-3">
+                          <select className="input text-xs py-1" value={sensor.bottle_std_id||''} onChange={e=>updateSensor(idx,'bottle_std_id',e.target.value)}>
+                            <option value="">— none —</option>
+                            {refStandards.map((rs:any) => (
+                              <option key={rs.id} value={rs.id}>{rs.name}</option>
+                            ))}
+                          </select>
+                        </div>
                         <div className="col-span-1 flex justify-end">
                           <button onClick={()=>removeSensor(idx)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
                         </div>
                       </div>
                     ))}
                     <p className="text-xs text-gray-400 px-1">
-                      Tip: CO2, CH4, O2 → "% of bottle value". CO, NO, NO2, SO2, H2S, Pressure, Temperature → "Fixed".
+                      Tip: CO2, CH4, O2 → "% of bottle value". CO, NO, NO2, SO2, H2S, Pressure, Temperature → "Fixed". Link each parameter to its reference standard — the report will use it automatically.
                     </p>
                   </div>
                 )}
