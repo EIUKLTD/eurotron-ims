@@ -13,18 +13,30 @@ const TEMP_ACCURACY_TYPES = [
 ]
 const ANALYSER_TYPES = ['Fixed Installation','Portable Multi-gas','Flue Gas','Combustion','Emissions','Process Gas']
 
-// Gases and their default tolerance type
-const GAS_OPTIONS = [
-  { gas: 'CO2',  unit: '%',   tol: 'pct_bottle', defaultTol: 5 },
-  { gas: 'CH4',  unit: '%',   tol: 'pct_bottle', defaultTol: 5 },
-  { gas: 'O2',   unit: '%',   tol: 'pct_bottle', defaultTol: 5 },
-  { gas: 'CO',   unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
-  { gas: 'H2S',  unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
-  { gas: 'NO',   unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
-  { gas: 'NO2',  unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
-  { gas: 'SO2',  unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
-  { gas: 'H2',   unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
-  { gas: 'CxHy', unit: 'ppm', tol: 'fixed',       defaultTol: 5 },
+// Gas sensor parameter options — includes gases plus Pressure and Temperature
+const SENSOR_OPTIONS = [
+  // Gases — % of bottle value
+  { gas: 'CO2',         unit: '%',    tol: 'pct_bottle', defaultTol: 1.2,  group: 'Gas (% vol)' },
+  { gas: 'CH4',         unit: '%',    tol: 'pct_bottle', defaultTol: 1.8,  group: 'Gas (% vol)' },
+  { gas: 'O2',          unit: '%',    tol: 'pct_bottle', defaultTol: 0.2,  group: 'Gas (% vol)' },
+  { gas: 'CO2IR',       unit: '%',    tol: 'pct_bottle', defaultTol: 1.2,  group: 'Gas (% vol)' },
+  // Gases — fixed ppm
+  { gas: 'CO',          unit: 'ppm',  tol: 'fixed',      defaultTol: 10,   group: 'Gas (ppm)' },
+  { gas: 'NO',          unit: 'ppm',  tol: 'fixed',      defaultTol: 4,    group: 'Gas (ppm)' },
+  { gas: 'NO2',         unit: 'ppm',  tol: 'fixed',      defaultTol: 4,    group: 'Gas (ppm)' },
+  { gas: 'SO2',         unit: 'ppm',  tol: 'fixed',      defaultTol: 25,   group: 'Gas (ppm)' },
+  { gas: 'H2S',         unit: 'ppm',  tol: 'fixed',      defaultTol: 25,   group: 'Gas (ppm)' },
+  { gas: 'H2',          unit: 'ppm',  tol: 'fixed',      defaultTol: 5,    group: 'Gas (ppm)' },
+  { gas: 'CxHy',        unit: 'ppm',  tol: 'fixed',      defaultTol: 5,    group: 'Gas (ppm)' },
+  { gas: 'NH3',         unit: 'ppm',  tol: 'fixed',      defaultTol: 5,    group: 'Gas (ppm)' },
+  { gas: 'HCN',         unit: 'ppm',  tol: 'fixed',      defaultTol: 2,    group: 'Gas (ppm)' },
+  { gas: 'HCl',         unit: 'ppm',  tol: 'fixed',      defaultTol: 5,    group: 'Gas (ppm)' },
+  { gas: 'HF',          unit: 'ppm',  tol: 'fixed',      defaultTol: 2,    group: 'Gas (ppm)' },
+  { gas: 'PH3',         unit: 'ppm',  tol: 'fixed',      defaultTol: 2,    group: 'Gas (ppm)' },
+  { gas: 'ClO2',        unit: 'ppm',  tol: 'fixed',      defaultTol: 2,    group: 'Gas (ppm)' },
+  // Physical parameters
+  { gas: 'Pressure',    unit: 'mbar', tol: 'fixed',      defaultTol: 1,    group: 'Physical' },
+  { gas: 'Temperature', unit: '°C',   tol: 'fixed',      defaultTol: 1,    group: 'Physical' },
 ]
 
 const CATEGORIES = [
@@ -66,7 +78,7 @@ export default function ModelsAdminPage() {
   async function load() {
     const [{ data: m }, { data: mk }, { data: ds }] = await Promise.all([
       supabase.from('instrument_models').select('*').order('instrument_category').order('make').order('model'),
-      supabase.from('instrument_makes').select('make').order('make'),
+      supabase.from('instrument_makes').select('make').eq('active', true).order('make'),
       supabase.from('instrument_descriptions').select('description, category').order('description'),
     ])
     setModels(m||[]); setLoading(false)
@@ -138,9 +150,9 @@ export default function ModelsAdminPage() {
 
   function set(k:string, v:any) { setForm((f:any)=>({...f,[k]:v})) }
 
-  // Gas sensor management
-  function addGasSensor() {
-    const defaults = GAS_OPTIONS[0]
+  // Sensor/parameter management
+  function addSensor() {
+    const defaults = SENSOR_OPTIONS[0]
     const newSensor = { gas: defaults.gas, unit: defaults.unit, nominal: '', tolerance_type: defaults.tol, tolerance_value: defaults.defaultTol }
     setForm((f:any) => ({ ...f, gas_sensors: [...(f.gas_sensors||[]), newSensor] }))
   }
@@ -149,9 +161,8 @@ export default function ModelsAdminPage() {
     setForm((f:any) => {
       const sensors = [...(f.gas_sensors||[])]
       sensors[idx] = { ...sensors[idx], [field]: value }
-      // If gas changed, update unit and default tolerance type
       if (field === 'gas') {
-        const opt = GAS_OPTIONS.find(g => g.gas === value)
+        const opt = SENSOR_OPTIONS.find(g => g.gas === value)
         if (opt) {
           sensors[idx].unit = opt.unit
           sensors[idx].tolerance_type = opt.tol
@@ -177,6 +188,13 @@ export default function ModelsAdminPage() {
     return acc
   }, {} as Record<string, any>)
 
+  // Group sensor options for the dropdown
+  const sensorGroups = SENSOR_OPTIONS.reduce((acc, opt) => {
+    if (!acc[opt.group]) acc[opt.group] = []
+    acc[opt.group].push(opt)
+    return acc
+  }, {} as Record<string, typeof SENSOR_OPTIONS>)
+
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
@@ -184,7 +202,10 @@ export default function ModelsAdminPage() {
           <h1 className="text-2xl font-semibold text-gray-900">Instrument models</h1>
           <p className="text-gray-500 text-sm mt-1">Manage models for all instrument types</p>
         </div>
-        <button onClick={startNew} className="btn-primary">+ Add model</button>
+        <div className="flex gap-2">
+          <a href="/dashboard/admin/makes" className="btn-secondary text-sm">Manage makes</a>
+          <button onClick={startNew} className="btn-primary">+ Add model</button>
+        </div>
       </div>
 
       {showForm && (
@@ -218,10 +239,10 @@ export default function ModelsAdminPage() {
                   onChange={e=>set('make',e.target.value)} placeholder="Type make name..." />
               )}
             </div>
-            <div><label className="label">Model number *</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} placeholder="e.g. EN 837-1, PACE 5000" /></div>
+            <div><label className="label">Model number *</label><input className="input" value={form.model} onChange={e=>set('model',e.target.value)} placeholder="e.g. RASI700, PACE 5000" /></div>
           </div>
 
-          {/* Description - dropdown from instrument_descriptions, filters by category */}
+          {/* Description */}
           <div className="mb-3">
             <label className="label">Description (optional)</label>
             <select className="input" value={form.name} onChange={e=>set('name',e.target.value)}>
@@ -242,39 +263,42 @@ export default function ModelsAdminPage() {
                 </select>
               </div>
 
-              {/* Gas sensor configuration */}
+              {/* Sensor / parameter configuration */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="label mb-0">Gas sensor configuration</label>
-                  <button onClick={addGasSensor} className="text-xs text-brand-500 hover:underline">+ Add gas</button>
+                  <label className="label mb-0">Sensor / parameter configuration</label>
+                  <button onClick={addSensor} className="text-xs text-brand-500 hover:underline">+ Add parameter</button>
                 </div>
                 {(form.gas_sensors||[]).length === 0 ? (
                   <div className="text-xs text-gray-400 bg-gray-50 rounded-xl p-3 text-center">
-                    No gases configured. Click "+ Add gas" to define which gases this analyser measures.
+                    No parameters configured. Click "+ Add parameter" to define what this analyser measures.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {/* Header */}
                     <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
-                      <div className="col-span-2">Gas</div>
+                      <div className="col-span-3">Parameter</div>
                       <div className="col-span-2">Unit</div>
-                      <div className="col-span-3">Nominal (bottle)</div>
+                      <div className="col-span-2">Nominal</div>
                       <div className="col-span-3">Tolerance type</div>
-                      <div className="col-span-1">Tol. value</div>
+                      <div className="col-span-1">Tol.</div>
                       <div className="col-span-1"></div>
                     </div>
                     {(form.gas_sensors||[]).map((sensor:any, idx:number) => (
                       <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-xl p-2">
-                        <div className="col-span-2">
+                        <div className="col-span-3">
                           <select className="input text-xs py-1" value={sensor.gas} onChange={e=>updateSensor(idx,'gas',e.target.value)}>
-                            {GAS_OPTIONS.map(g=><option key={g.gas} value={g.gas}>{g.gas}</option>)}
+                            {Object.entries(sensorGroups).map(([group, opts]) => (
+                              <optgroup key={group} label={group}>
+                                {opts.map(o=><option key={o.gas} value={o.gas}>{o.gas}</option>)}
+                              </optgroup>
+                            ))}
                           </select>
                         </div>
                         <div className="col-span-2">
                           <input className="input text-xs py-1" value={sensor.unit} onChange={e=>updateSensor(idx,'unit',e.target.value)} placeholder="%" />
                         </div>
-                        <div className="col-span-3">
-                          <input className="input text-xs py-1" type="number" step="any" value={sensor.nominal||''} onChange={e=>updateSensor(idx,'nominal',e.target.value)} placeholder="e.g. 20" />
+                        <div className="col-span-2">
+                          <input className="input text-xs py-1" type="number" step="any" value={sensor.nominal||''} onChange={e=>updateSensor(idx,'nominal',e.target.value)} placeholder="blank=bottle" />
                         </div>
                         <div className="col-span-3">
                           <select className="input text-xs py-1" value={sensor.tolerance_type} onChange={e=>updateSensor(idx,'tolerance_type',e.target.value)}>
@@ -291,7 +315,7 @@ export default function ModelsAdminPage() {
                       </div>
                     ))}
                     <p className="text-xs text-gray-400 px-1">
-                      Tip: CO2, CH4, O2 → use "% of bottle value". CO, NO, NO2, SO2, H2S → use "Fixed".
+                      Tip: CO2, CH4, O2 → "% of bottle value". CO, NO, NO2, SO2, H2S, Pressure, Temperature → "Fixed".
                     </p>
                   </div>
                 )}
@@ -409,7 +433,7 @@ export default function ModelsAdminPage() {
                   <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase bg-gray-50">
                     <th className="px-5 py-2 text-left">Make / Model</th>
                     {(catKey === 'gas_analyser' || catKey === 'portable_gas_analyser') && <th className="px-5 py-2 text-left">Type</th>}
-                    {(catKey === 'gas_analyser' || catKey === 'portable_gas_analyser') && <th className="px-5 py-2 text-left">Gases</th>}
+                    {(catKey === 'gas_analyser' || catKey === 'portable_gas_analyser') && <th className="px-5 py-2 text-left">Parameters</th>}
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Range</th>}
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Accuracy</th>}
                     {catKey === 'pressure_gauge' && <th className="px-5 py-2 text-left">Decimals</th>}
