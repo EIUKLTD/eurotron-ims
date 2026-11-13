@@ -4,12 +4,13 @@ import { createClient } from '@/lib/supabase'
 import { useRouter, useParams } from 'next/navigation'
 
 const CATEGORIES = [
-  { key: 'gas_analyser',   label: '🔬 Gas Analyser' },
-  { key: 'pressure_gauge', label: '📊 Pressure Gauge' },
-  { key: 'temperature',    label: '🌡 Temperature' },
-  { key: 'flow',           label: '💧 Flow' },
-  { key: 'electrical',     label: '⚡ Electrical' },
-  { key: 'other',          label: '🔧 Other' },
+  { key: 'gas_analyser',          label: '🔬 Gas Analyser' },
+  { key: 'portable_gas_analyser', label: '🔬 Portable Gas Analyser' },
+  { key: 'pressure_gauge',        label: '📊 Pressure Gauge' },
+  { key: 'temperature',           label: '🌡 Temperature' },
+  { key: 'flow',                  label: '💧 Flow' },
+  { key: 'electrical',            label: '⚡ Electrical' },
+  { key: 'other',                 label: '🔧 Other' },
 ]
 
 const GAS_OPTIONS = ['CO','CO2','O2','NO','NO2','SO2','H2S','CH4','CxHy','HC','NOx']
@@ -24,12 +25,13 @@ const TEMP_ACC_TYPES = [
   { key: 'pct_rdg', label: '% of Reading' },
 ]
 const INSTRUMENT_TYPES: Record<string, string[]> = {
-  gas_analyser:   ['Fixed Gas Analyser','Portable Gas Analyser','Flue Gas Analyser','Process Gas Analyser'],
-  pressure_gauge: ['Digital Pressure Gauge','Analogue Pressure Gauge','Digital Compound Gauge','Analogue Compound Gauge','Differential Pressure Gauge'],
-  temperature:    ['Dry Block Calibrator','Portable Liquid Bath','Temperature Calibrator'],
-  flow:           ['Flow Meter','Mass Flow Controller','Ultrasonic Flow Meter'],
-  electrical:     ['Multimeter','Clamp Meter','Insulation Tester','PAT Tester'],
-  other:          ['Other Instrument'],
+  gas_analyser:          ['Fixed Gas Analyser','Flue Gas Analyser','Process Gas Analyser'],
+  portable_gas_analyser: ['Portable Gas Analyser','Portable Multi-gas Analyser'],
+  pressure_gauge:        ['Digital Pressure Gauge','Analogue Pressure Gauge','Digital Compound Gauge','Analogue Compound Gauge','Differential Pressure Gauge'],
+  temperature:           ['Dry Block Calibrator','Portable Liquid Bath','Temperature Calibrator'],
+  flow:                  ['Flow Meter','Mass Flow Controller','Ultrasonic Flow Meter'],
+  electrical:            ['Multimeter','Clamp Meter','Insulation Tester','PAT Tester'],
+  other:                 ['Other Instrument'],
 }
 
 export default function EditInstrumentPage() {
@@ -40,7 +42,11 @@ export default function EditInstrumentPage() {
 
   const [customers, setCustomers]         = useState<any[]>([])
   const [sites, setSites]                 = useState<any[]>([])
+  const [allModels, setAllModels]         = useState<any[]>([])
   const [filteredSites, setFilteredSites] = useState<any[]>([])
+  const [filteredModels, setFilteredModels] = useState<any[]>([])
+  const [standards, setStandards]         = useState<any[]>([])
+  const [selectedStandards, setSelectedStandards] = useState<string[]>([])
   const [saving, setSaving]               = useState(false)
   const [loading, setLoading]             = useState(true)
   const [form, setForm]                   = useState<any>(null)
@@ -49,12 +55,16 @@ export default function EditInstrumentPage() {
     Promise.all([
       supabase.from('customers').select('id,name').order('name'),
       supabase.from('sites').select('*').order('name'),
+      supabase.from('instrument_models').select('*').eq('active', true).order('make').order('model'),
+      supabase.from('reference_standards').select('id,description,make,model,serial_number,standard_types,gas_concentrations').eq('active', true).order('description'),
       supabase.from('instruments').select('*').eq('id', id).single(),
-    ]).then(([{ data: c }, { data: s }, { data: inst }]) => {
-      setCustomers(c||[]); setSites(s||[])
+      supabase.from('instrument_standards').select('standard_id').eq('instrument_id', id),
+    ]).then(([{ data: c }, { data: s }, { data: m }, { data: st }, { data: inst }, { data: assigned }]) => {
+      setCustomers(c||[]); setSites(s||[]); setAllModels(m||[]); setStandards(st||[])
       if (inst) {
         setForm({
           instrument_category: inst.instrument_category || 'gas_analyser',
+          model_id: inst.model_id || '',
           name: inst.name || '',
           make: inst.make || '',
           model: inst.model || '',
@@ -93,10 +103,16 @@ export default function EditInstrumentPage() {
           status: inst.status || 'active',
         })
         setFilteredSites((s||[]).filter((site: any) => site.customer_id === inst.customer_id))
+        setSelectedStandards((assigned||[]).map((a: any) => a.standard_id))
       }
       setLoading(false)
     })
   }, [id])
+
+  useEffect(() => {
+    if (!form) return
+    setFilteredModels(allModels.filter(m => (m.instrument_category || 'gas_analyser') === form.instrument_category))
+  }, [form?.instrument_category, allModels])
 
   function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })) }
 
@@ -117,12 +133,29 @@ export default function EditInstrumentPage() {
       : [...form.gases_measured, g])
   }
 
+  function toggleStandard(id: string) {
+    setSelectedStandards(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  function standardBadge(s: any) {
+    const types: string[] = s.standard_types || []
+    if (types.includes('gas')) return '🔬'
+    if (types.includes('pressure')) return '📊'
+    if (types.includes('temperature')) return '🌡'
+    if (types.includes('electrical')) return '⚡'
+    return '🔧'
+  }
+
   async function handleSave() {
     if (!form.customer_id) return alert('Please select a customer.')
     if (!form.name) return alert('Please select an instrument type.')
     setSaving(true)
+
     const { error } = await supabase.from('instruments').update({
       instrument_category: form.instrument_category,
+      model_id: form.model_id || null,
       name: form.name, make: form.make, model: form.model,
       serial_number: form.serial_number || null,
       asset_tag: form.asset_tag || null,
@@ -139,6 +172,7 @@ export default function EditInstrumentPage() {
       warranty_expiry: form.warranty_expiry || null,
       notes: form.notes || null,
       status: form.status,
+      // Pressure
       pressure_range:      form.pressure_range ? parseFloat(form.pressure_range) : null,
       vacuum_range:        form.vacuum_range   ? parseFloat(form.vacuum_range)   : null,
       pressure_unit:       form.pressure_unit,
@@ -146,6 +180,7 @@ export default function EditInstrumentPage() {
       decimal_places:      parseInt(form.decimal_places) || null,
       gauge_type:          form.gauge_type || null,
       pressure_connection: form.pressure_connection || null,
+      // Temperature
       temp_instrument_type:    form.temp_instrument_type || null,
       temp_range_min:          form.temp_range_min ? parseFloat(form.temp_range_min) : null,
       temp_range_max:          form.temp_range_max ? parseFloat(form.temp_range_max) : null,
@@ -155,8 +190,25 @@ export default function EditInstrumentPage() {
       temp_stability:          form.temp_stability ? parseFloat(form.temp_stability) : null,
       temp_display_resolution: form.temp_display_resolution ? parseFloat(form.temp_display_resolution) : null,
     }).eq('id', id)
+
+    if (error) {
+      setSaving(false)
+      alert(error.message)
+      return
+    }
+
+    // Replace assigned reference standards (delete all then re-insert)
+    await supabase.from('instrument_standards').delete().eq('instrument_id', id)
+    if (selectedStandards.length) {
+      const rows = selectedStandards.map((stdId, i) => ({
+        instrument_id: id,
+        standard_id: stdId,
+        sort_order: i,
+      }))
+      await supabase.from('instrument_standards').insert(rows)
+    }
+
     setSaving(false)
-    if (error) { alert(error.message); return }
     router.push(`/dashboard/instruments/${id}`)
   }
 
@@ -165,7 +217,15 @@ export default function EditInstrumentPage() {
   const cat = form.instrument_category
   const isPressure = cat === 'pressure_gauge'
   const isTemp     = cat === 'temperature'
-  const isGas      = cat === 'gas_analyser'
+  const isGas      = cat === 'gas_analyser' || cat === 'portable_gas_analyser'
+
+  const relevantStandards = standards.filter(s => {
+    const types: string[] = s.standard_types || []
+    if (isGas) return types.includes('gas') || types.includes('other')
+    if (isPressure) return types.includes('pressure') || types.includes('other')
+    if (isTemp) return types.includes('temperature') || types.includes('other')
+    return true
+  })
 
   return (
     <div className="p-6 max-w-3xl">
@@ -210,6 +270,61 @@ export default function EditInstrumentPage() {
           </div>
         </div>
 
+        {/* Model selector */}
+        <div className="p-5 space-y-3">
+          <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">
+            Instrument model
+            <span className="text-gray-400 font-normal normal-case ml-1 text-xs">(defines calibration parameters)</span>
+          </h2>
+          {filteredModels.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No models for this category — <a href="/dashboard/admin/models" className="text-brand-500 hover:underline">add in Admin → Models</a></p>
+          ) : (
+            <select className="input" value={form.model_id} onChange={e => set('model_id', e.target.value)}>
+              <option value="">No model linked</option>
+              {filteredModels.map(m => (
+                <option key={m.id} value={m.id}>{m.make} {m.model}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Reference standards */}
+        <div className="p-5 space-y-3">
+          <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">
+            Reference standards
+            <span className="text-gray-400 font-normal normal-case ml-1 text-xs">(auto-populated on every calibration)</span>
+          </h2>
+          {relevantStandards.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No active reference standards</p>
+          ) : (
+            <div className="space-y-2">
+              {relevantStandards.map(s => (
+                <label key={s.id} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${selectedStandards.includes(s.id) ? 'border-brand-500 bg-brand-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedStandards.includes(s.id)}
+                    onChange={() => toggleStandard(s.id)}
+                    className="mt-0.5 accent-brand-500"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-800">{standardBadge(s)} {s.description}</div>
+                    {(s.make || s.model) && <div className="text-xs text-gray-500">{s.make} {s.model}</div>}
+                    {s.serial_number && <div className="text-xs text-gray-400 font-mono">S/N: {s.serial_number}</div>}
+                    {s.gas_concentrations?.length > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        {s.gas_concentrations.map((g: any) => `${g.gas}: ${g.concentration} ${g.unit}`).join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+          {selectedStandards.length > 0 && (
+            <p className="text-xs text-brand-600 font-medium">{selectedStandards.length} standard{selectedStandards.length > 1 ? 's' : ''} assigned</p>
+          )}
+        </div>
+
         {/* Instrument details */}
         <div className="p-5 space-y-3">
           <h2 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Instrument details</h2>
@@ -233,7 +348,6 @@ export default function EditInstrumentPage() {
             <div><label className="label">Asset / tag ID</label><input className="input" value={form.asset_tag} onChange={e => set('asset_tag', e.target.value)} /></div>
           </div>
 
-          {/* Gas analyser specific */}
           {isGas && (
             <>
               <div className="grid grid-cols-2 gap-3">
@@ -259,7 +373,6 @@ export default function EditInstrumentPage() {
             </>
           )}
 
-          {/* Pressure gauge specific */}
           {isPressure && (
             <>
               <div className="grid grid-cols-2 gap-3">
@@ -298,7 +411,6 @@ export default function EditInstrumentPage() {
             </>
           )}
 
-          {/* Temperature specific */}
           {isTemp && (
             <>
               <div>
