@@ -151,6 +151,21 @@ export default function ModelsAdminPage() {
     await supabase.from('instrument_models').delete().eq('id', id); load()
   }
 
+  async function duplicateModel(m: any) {
+    setSaving(true)
+    const { id: _id, created_at: _c, updated_at: _u, ...rest } = m
+    const payload = {
+      ...rest,
+      name: `Copy of ${m.name || `${m.make} ${m.model}`}`,
+      model: `${m.model} (copy)`,
+      active: true,
+    }
+    const { data } = await supabase.from('instrument_models').insert(payload).select().single()
+    setSaving(false)
+    await load()
+    if (data) startEdit(data)
+  }
+
   function set(k:string, v:any) { setForm((f:any)=>({...f,[k]:v})) }
 
   // Sensor/parameter management
@@ -486,6 +501,7 @@ export default function ModelsAdminPage() {
                       {catKey === 'temperature' && <td className="px-5 py-3 text-xs text-gray-500">{m.temp_stability ? `±${m.temp_stability}°C` : '—'}</td>}
                       <td className="px-5 py-3 text-right space-x-3">
                         <button onClick={()=>startEdit(m)} className="text-xs text-brand-500 hover:underline">Edit</button>
+                        <button onClick={()=>duplicateModel(m)} disabled={saving} className="text-xs text-indigo-500 hover:underline">Duplicate</button>
                         <button onClick={()=>toggleActive(m)} className="text-xs text-amber-500 hover:underline">{m.active===false?'Enable':'Disable'}</button>
                         <button onClick={()=>deleteModel(m.id)} className="text-xs text-red-400 hover:underline">Delete</button>
                       </td>
