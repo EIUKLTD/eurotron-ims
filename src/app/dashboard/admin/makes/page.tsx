@@ -29,8 +29,10 @@ export default function InstrumentListsPage() {
   const [newModelName, setNewModelName]     = useState('')
 
   // Descriptions form
-  const [newDesc, setNewDesc]       = useState('')
-  const [newDescCat, setNewDescCat] = useState('')
+  const [newDesc, setNewDesc]               = useState('')
+  const [newDescCat, setNewDescCat]         = useState('')
+  const [newDescMakeId, setNewDescMakeId]   = useState('')
+  const [newDescModelId, setNewDescModelId] = useState('')
 
   const [saving, setSaving] = useState(false)
   const supabase = createClient()
@@ -40,7 +42,7 @@ export default function InstrumentListsPage() {
       supabase.from('instrument_makes').select('*').order('make'),
       supabase.from('instrument_categories').select('*').order('sort_order').order('label'),
       supabase.from('instrument_model_list').select('*, instrument_makes(make)').order('name'),
-      supabase.from('instrument_desc_list').select('*').order('description'),
+      supabase.from('instrument_desc_list').select('*, instrument_model_list(name, make_id, instrument_makes(make))').order('description'),
     ])
     setMakes(mk||[]); setCategories(cat||[]); setModels(mo||[]); setDescs(ds||[])
     setLoading(false)
@@ -119,7 +121,11 @@ export default function InstrumentListsPage() {
   async function addDesc() {
     if (!newDesc.trim()) return
     setSaving(true)
-    const { error } = await supabase.from('instrument_desc_list').insert({ description: newDesc.trim(), category: newDescCat||null })
+    const { error } = await supabase.from('instrument_desc_list').insert({
+      description: newDesc.trim(),
+      category: newDescCat||null,
+      model_id: newDescModelId||null,
+    })
     if (error) { alert(error.message); setSaving(false); return }
     setNewDesc(''); setSaving(false); load()
   }
@@ -301,14 +307,20 @@ export default function InstrumentListsPage() {
                   <h2 className="font-semibold text-gray-700 text-sm">Descriptions</h2>
                   <p className="text-xs text-gray-400 mt-0.5">Standard instrument descriptions — used as dropdowns when adding an instrument for a customer</p>
                 </div>
-                <div className="px-5 py-3 border-b border-gray-100 flex gap-2">
-                  <select className="input w-44" value={newDescCat} onChange={e => setNewDescCat(e.target.value)}>
-                    <option value="">— Category (optional) —</option>
-                    {categories.filter(c => c.active !== false).map(c => (
-                      <option key={c.id} value={c.key}>{c.icon} {c.label}</option>
+                <div className="px-5 py-3 border-b border-gray-100 flex gap-2 flex-wrap">
+                  <select className="input w-36" value={newDescMakeId} onChange={e => { setNewDescMakeId(e.target.value); setNewDescModelId('') }}>
+                    <option value="">— Make —</option>
+                    {makes.filter(m => m.active !== false).map(m => (
+                      <option key={m.id} value={m.id}>{m.make}</option>
                     ))}
                   </select>
-                  <input className="input flex-1" value={newDesc} onChange={e => setNewDesc(e.target.value)}
+                  <select className="input w-40" value={newDescModelId} onChange={e => setNewDescModelId(e.target.value)}>
+                    <option value="">— Model —</option>
+                    {models.filter(m => !newDescMakeId || m.make_id === newDescMakeId).map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                  <input className="input flex-1 min-w-40" value={newDesc} onChange={e => setNewDesc(e.target.value)}
                     placeholder="e.g. Portable Flue Gas Analyser"
                     onKeyDown={e => e.key === 'Enter' && addDesc()} />
                   <button onClick={addDesc} disabled={saving} className="btn-primary text-sm">Add</button>
@@ -317,10 +329,10 @@ export default function InstrumentListsPage() {
                   <tbody className="divide-y divide-gray-50">
                     {descriptions.map(d => (
                       <tr key={d.id} className={`hover:bg-gray-50 ${d.active === false ? 'opacity-50' : ''}`}>
-                        <td className="px-5 py-2.5 text-xs text-gray-400 w-44">
-                          {categories.find(c => c.key === d.category)
-                            ? `${categories.find(c => c.key === d.category).icon} ${categories.find(c => c.key === d.category).label}`
-                            : <span className="text-gray-300">All</span>}
+                        <td className="px-5 py-2.5 text-xs text-gray-400 w-48">
+                          {d.instrument_model_list
+                            ? <span>{d.instrument_model_list.instrument_makes?.make} <span className="font-medium text-gray-600">{d.instrument_model_list.name}</span></span>
+                            : <span className="text-gray-300">No model linked</span>}
                         </td>
                         <td className="px-5 py-2.5 font-medium text-gray-800">{d.description}</td>
                         <td className="px-5 py-2.5 text-right space-x-3">
