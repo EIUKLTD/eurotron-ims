@@ -2,6 +2,30 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 
+const PRESET_DESCRIPTIONS = [
+  'Flue Gas Analyser',
+  'Combustion Analyser',
+  'Emissions Analyser',
+  'Biogas Analyser',
+  'Portable Gas Detector',
+  'Fixed Gas Detector',
+  'Gas Leak Detector',
+  'Oxygen Analyser',
+  'Pressure Gauge',
+  'Differential Pressure Gauge',
+  'Pressure Calibrator',
+  'Temperature Calibrator',
+  'Dry Block Calibrator',
+  'Liquid Bath Calibrator',
+  'Multifunction Calibrator',
+  'Data Logger',
+  'Thermometer',
+  'Thermocouple Calibrator',
+  'Flow Meter',
+  'Electrical Calibrator',
+  'Other',
+]
+
 type Tab = 'makes' | 'categories' | 'models'
 
 export default function InstrumentListsPage() {
@@ -320,9 +344,12 @@ export default function InstrumentListsPage() {
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
-                  <input className="input flex-1 min-w-40" value={newDesc} onChange={e => setNewDesc(e.target.value)}
-                    placeholder="e.g. Portable Flue Gas Analyser"
-                    onKeyDown={e => e.key === 'Enter' && addDesc()} />
+                  <select className="input flex-1 min-w-40" value={newDesc} onChange={e => setNewDesc(e.target.value)}>
+                    <option value="">— Description —</option>
+                    {PRESET_DESCRIPTIONS.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
                   <button onClick={addDesc} disabled={saving} className="btn-primary text-sm">Add</button>
                 </div>
                 <table className="w-full text-sm">
