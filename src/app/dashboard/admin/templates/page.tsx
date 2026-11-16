@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase'
 
 const GASES = ['O2','CO','CO2','CH4','H2S','NO','NO2','SO2','CxHy','HC','NOx']
 const UNITS = ['ppm','% vol','% LEL','mg/m3','ppb','% v/v']
+const PRESSURE_UNITS = ['mbar','bar','psi','kPa','MPa','inH2O','mmHg']
+const TEMP_UNITS = ['°C','°F','K']
 
 type ToleranceType = 'fixed_abs' | 'pct_of_nominal'
 type NominalType = 'fixed' | 'from_bottle'
@@ -19,18 +21,34 @@ interface Parameter {
   tolerance_unit: string
 }
 
+interface PressurePoint {
+  label: string
+  nominal: string
+  unit: string
+  tolerance: string
+}
+
+interface TempPoint {
+  label: string
+  set_point: string
+  unit: string
+  tolerance: string
+}
+
 const TRACEABILITY = 'This certificate is produced by using test gases which are produced in accordance to ISO 6141. The certified results shown below are traceable to gas reference material or to mass traceable to national standard.'
 
 export default function TemplatesPage() {
-  const [templates, setTemplates] = useState<any[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [showForm, setShowForm]   = useState(false)
-  const [editing, setEditing]     = useState<string|null>(null)
-  const [name, setName]           = useState('')
+  const [templates, setTemplates]   = useState<any[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [showForm, setShowForm]     = useState(false)
+  const [editing, setEditing]       = useState<string|null>(null)
+  const [name, setName]             = useState('')
   const [description, setDescription] = useState('')
   const [testMethod, setTestMethod] = useState('Comparison against certified reference gas standards produced in accordance with ISO 6141')
-  const [params, setParams]       = useState<Parameter[]>([])
-  const [saving, setSaving]       = useState(false)
+  const [params, setParams]         = useState<Parameter[]>([])
+  const [pressurePoints, setPressurePoints] = useState<PressurePoint[]>([])
+  const [tempPoints, setTempPoints] = useState<TempPoint[]>([])
+  const [saving, setSaving]         = useState(false)
   const supabase = createClient()
 
   async function load() {
@@ -44,15 +62,20 @@ export default function TemplatesPage() {
   function startNew() {
     setEditing(null); setName(''); setDescription('')
     setTestMethod('Comparison against certified reference gas standards produced in accordance with ISO 6141')
-    setParams([]); setShowForm(true)
+    setParams([]); setPressurePoints([]); setTempPoints([])
+    setShowForm(true)
   }
 
   function startEdit(t:any) {
     setEditing(t.id); setName(t.name||''); setDescription(t.description||'')
     setTestMethod(t.test_method||'')
-    setParams(t.parameters||[]); setShowForm(true); window.scrollTo(0,0)
+    setParams(t.parameters||[])
+    setPressurePoints(t.pressure_points||[])
+    setTempPoints(t.temp_points||[])
+    setShowForm(true); window.scrollTo(0,0)
   }
 
+  // Gas parameters
   function addParam() {
     setParams(p=>[...p, {
       parameter:'', gas:'CO2', nominal_type:'from_bottle',
@@ -60,18 +83,41 @@ export default function TemplatesPage() {
       tolerance:'', tolerance_unit:'ppm'
     }])
   }
-
   function removeParam(i:number) { setParams(p=>p.filter((_,idx)=>idx!==i)) }
-
   function updateParam(i:number, key:string, val:string) {
     setParams(p=>{ const updated=[...p]; updated[i]={...updated[i],[key]:val}; return updated })
   }
 
+  // Pressure points
+  function addPressurePoint() {
+    setPressurePoints(p=>[...p, { label:'', nominal:'', unit:'mbar', tolerance:'' }])
+  }
+  function removePressurePoint(i:number) { setPressurePoints(p=>p.filter((_,idx)=>idx!==i)) }
+  function updatePressurePoint(i:number, key:string, val:string) {
+    setPressurePoints(p=>{ const u=[...p]; u[i]={...u[i],[key]:val}; return u })
+  }
+
+  // Temperature points
+  function addTempPoint() {
+    setTempPoints(p=>[...p, { label:'', set_point:'', unit:'°C', tolerance:'' }])
+  }
+  function removeTempPoint(i:number) { setTempPoints(p=>p.filter((_,idx)=>idx!==i)) }
+  function updateTempPoint(i:number, key:string, val:string) {
+    setTempPoints(p=>{ const u=[...p]; u[i]={...u[i],[key]:val}; return u })
+  }
+
   async function save() {
     if (!name) return alert('Template name is required.')
-    if (!params.length) return alert('Add at least one parameter.')
+    if (!params.length && !pressurePoints.length && !tempPoints.length)
+      return alert('Add at least one parameter, pressure point, or temperature point.')
     setSaving(true)
-    const payload = { name, description, test_method: testMethod, parameters: params, active: true }
+    const payload = {
+      name, description, test_method: testMethod,
+      parameters: params,
+      pressure_points: pressurePoints,
+      temp_points: tempPoints,
+      active: true,
+    }
     if (editing) {
       const { error } = await supabase.from('cal_templates').update(payload).eq('id', editing)
       if (error) { alert(error.message); setSaving(false); return }
@@ -219,6 +265,90 @@ export default function TemplatesPage() {
             ))}
           </div>
 
+          {/* Pressure points */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-700">Pressure calibration points <span className="text-gray-400 font-normal text-xs">(optional — for portable analysers with pressure sensor)</span></h3>
+              <button onClick={addPressurePoint} className="text-xs text-brand-500 hover:underline">+ Add point</button>
+            </div>
+            {pressurePoints.length === 0 ? (
+              <div className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-3">No pressure points — only add if this instrument measures pressure.</div>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
+                  <div className="col-span-4">Label</div>
+                  <div className="col-span-3">Nominal value</div>
+                  <div className="col-span-2">Unit</div>
+                  <div className="col-span-2">Tolerance (±)</div>
+                  <div className="col-span-1"></div>
+                </div>
+                {pressurePoints.map((pp, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-xl p-2">
+                    <div className="col-span-4">
+                      <input className="input text-xs py-1" value={pp.label} onChange={e=>updatePressurePoint(i,'label',e.target.value)} placeholder="e.g. Zero, Mid, Full scale" />
+                    </div>
+                    <div className="col-span-3">
+                      <input className="input text-xs py-1" type="number" step="any" value={pp.nominal} onChange={e=>updatePressurePoint(i,'nominal',e.target.value)} placeholder="e.g. 0, 50, 100" />
+                    </div>
+                    <div className="col-span-2">
+                      <select className="input text-xs py-1" value={pp.unit} onChange={e=>updatePressurePoint(i,'unit',e.target.value)}>
+                        {PRESSURE_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <input className="input text-xs py-1" type="number" step="any" value={pp.tolerance} onChange={e=>updatePressurePoint(i,'tolerance',e.target.value)} placeholder="e.g. 1" />
+                    </div>
+                    <div className="col-span-1 flex justify-end">
+                      <button onClick={()=>removePressurePoint(i)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Temperature points */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-700">Temperature calibration points <span className="text-gray-400 font-normal text-xs">(optional — for portable analysers with temperature sensor)</span></h3>
+              <button onClick={addTempPoint} className="text-xs text-brand-500 hover:underline">+ Add point</button>
+            </div>
+            {tempPoints.length === 0 ? (
+              <div className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-3">No temperature points — only add if this instrument measures temperature.</div>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-12 gap-2 text-xs text-gray-400 font-medium px-1">
+                  <div className="col-span-4">Label</div>
+                  <div className="col-span-3">Set point</div>
+                  <div className="col-span-2">Unit</div>
+                  <div className="col-span-2">Tolerance (±)</div>
+                  <div className="col-span-1"></div>
+                </div>
+                {tempPoints.map((tp, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-xl p-2">
+                    <div className="col-span-4">
+                      <input className="input text-xs py-1" value={tp.label} onChange={e=>updateTempPoint(i,'label',e.target.value)} placeholder="e.g. Ambient, Low, High" />
+                    </div>
+                    <div className="col-span-3">
+                      <input className="input text-xs py-1" type="number" step="any" value={tp.set_point} onChange={e=>updateTempPoint(i,'set_point',e.target.value)} placeholder="e.g. 20, -10, 100" />
+                    </div>
+                    <div className="col-span-2">
+                      <select className="input text-xs py-1" value={tp.unit} onChange={e=>updateTempPoint(i,'unit',e.target.value)}>
+                        {TEMP_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <input className="input text-xs py-1" type="number" step="any" value={tp.tolerance} onChange={e=>updateTempPoint(i,'tolerance',e.target.value)} placeholder="e.g. 0.5" />
+                    </div>
+                    <div className="col-span-1 flex justify-end">
+                      <button onClick={()=>removeTempPoint(i)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-3">
             <button onClick={save} disabled={saving} className="btn-primary">
               {saving?'Saving...':editing?'Update template':'Save template'}
@@ -270,6 +400,20 @@ export default function TemplatesPage() {
                       <td className="px-5 py-2 text-gray-400 italic">Not installed</td>
                     </tr>
                   ))}
+                  {(t.pressure_points||[]).length > 0 && (
+                    <tr className="bg-blue-50">
+                      <td className="px-5 py-2 font-medium text-blue-700" colSpan={5}>
+                        📊 {(t.pressure_points||[]).length} pressure point{(t.pressure_points||[]).length > 1 ? 's' : ''}: {(t.pressure_points||[]).map((pp:PressurePoint)=>`${pp.nominal} ${pp.unit}`).join(', ')}
+                      </td>
+                    </tr>
+                  )}
+                  {(t.temp_points||[]).length > 0 && (
+                    <tr className="bg-orange-50">
+                      <td className="px-5 py-2 font-medium text-orange-700" colSpan={5}>
+                        🌡 {(t.temp_points||[]).length} temperature point{(t.temp_points||[]).length > 1 ? 's' : ''}: {(t.temp_points||[]).map((tp:TempPoint)=>`${tp.set_point} ${tp.unit}`).join(', ')}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
