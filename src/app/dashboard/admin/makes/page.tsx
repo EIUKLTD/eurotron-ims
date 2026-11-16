@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 
-type Tab = 'makes' | 'categories' | 'models' | 'descriptions'
+type Tab = 'makes' | 'categories' | 'models'
 
 export default function InstrumentListsPage() {
   const [tab, setTab]               = useState<Tab>('makes')
@@ -134,17 +134,16 @@ export default function InstrumentListsPage() {
   }
 
   const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'makes',        label: 'Makes',        count: makes.length },
-    { key: 'categories',   label: 'Categories',   count: categories.length },
-    { key: 'models',       label: 'Models',       count: models.length },
-    { key: 'descriptions', label: 'Descriptions', count: descriptions.length },
+    { key: 'makes',      label: 'Makes',      count: makes.length },
+    { key: 'categories', label: 'Categories', count: categories.length },
+    { key: 'models',     label: 'Models & Descriptions', count: models.length + descriptions.length },
   ]
 
   return (
     <div className="p-6 max-w-3xl">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-gray-900">Instrument lists</h1>
-        <p className="text-gray-500 text-sm mt-1">Manage the dropdown options used when creating instrument models and instruments</p>
+        <p className="text-gray-500 text-sm mt-1">Manage the dropdown options used when adding instruments for customers</p>
       </div>
 
       {/* Tabs */}
@@ -258,80 +257,83 @@ export default function InstrumentListsPage() {
             </div>
           )}
 
-          {/* ── Models ── */}
+          {/* ── Models & Descriptions ── */}
           {tab === 'models' && (
-            <div className="card overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                <h2 className="font-semibold text-gray-700 text-sm">Models</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Model names linked to each make — used as dropdowns when creating instrument models</p>
-              </div>
-              <div className="px-5 py-3 border-b border-gray-100 flex gap-2">
-                <select className="input w-40" value={newModelMakeId} onChange={e => setNewModelMakeId(e.target.value)}>
-                  <option value="">— Make —</option>
-                  {makes.filter(m => m.active !== false).map(m => (
-                    <option key={m.id} value={m.id}>{m.make}</option>
-                  ))}
-                </select>
-                <input className="input flex-1" value={newModelName} onChange={e => setNewModelName(e.target.value)}
-                  placeholder="e.g. RASI 700, KANE 9206, PACE 5000"
-                  onKeyDown={e => e.key === 'Enter' && addModel()} />
-                <button onClick={addModel} disabled={saving} className="btn-primary text-sm">Add</button>
-              </div>
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-gray-50">
-                  {models.map(m => (
-                    <tr key={m.id} className="hover:bg-gray-50">
-                      <td className="px-5 py-2.5 text-xs text-gray-400 w-32">{m.instrument_makes?.make || '—'}</td>
-                      <td className="px-5 py-2.5 font-medium text-gray-800">{m.name}</td>
-                      <td className="px-5 py-2.5 text-right">
-                        <button onClick={() => deleteModel(m.id)} className="text-xs text-red-400 hover:underline">Delete</button>
-                      </td>
-                    </tr>
-                  ))}
-                  {models.length === 0 && <tr><td colSpan={3} className="px-5 py-6 text-center text-gray-400 text-xs">No models yet</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          )}
+            <div className="space-y-5">
 
-          {/* ── Descriptions ── */}
-          {tab === 'descriptions' && (
-            <div className="card overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                <h2 className="font-semibold text-gray-700 text-sm">Descriptions</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Standard instrument descriptions used in the model form</p>
+              {/* Models section */}
+              <div className="card overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+                  <h2 className="font-semibold text-gray-700 text-sm">Models</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Model names per make — used as dropdowns when adding an instrument for a customer</p>
+                </div>
+                <div className="px-5 py-3 border-b border-gray-100 flex gap-2">
+                  <select className="input w-40" value={newModelMakeId} onChange={e => setNewModelMakeId(e.target.value)}>
+                    <option value="">— Make —</option>
+                    {makes.filter(m => m.active !== false).map(m => (
+                      <option key={m.id} value={m.id}>{m.make}</option>
+                    ))}
+                  </select>
+                  <input className="input flex-1" value={newModelName} onChange={e => setNewModelName(e.target.value)}
+                    placeholder="e.g. RASI 700, KANE 9206, PACE 5000"
+                    onKeyDown={e => e.key === 'Enter' && addModel()} />
+                  <button onClick={addModel} disabled={saving} className="btn-primary text-sm">Add</button>
+                </div>
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-gray-50">
+                    {models.map(m => (
+                      <tr key={m.id} className="hover:bg-gray-50">
+                        <td className="px-5 py-2.5 text-xs text-gray-400 w-36">{m.instrument_makes?.make || '—'}</td>
+                        <td className="px-5 py-2.5 font-medium text-gray-800">{m.name}</td>
+                        <td className="px-5 py-2.5 text-right">
+                          <button onClick={() => deleteModel(m.id)} className="text-xs text-red-400 hover:underline">Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {models.length === 0 && <tr><td colSpan={3} className="px-5 py-6 text-center text-gray-400 text-xs">No models yet</td></tr>}
+                  </tbody>
+                </table>
               </div>
-              <div className="px-5 py-3 border-b border-gray-100 flex gap-2">
-                <select className="input w-44" value={newDescCat} onChange={e => setNewDescCat(e.target.value)}>
-                  <option value="">— Category (optional) —</option>
-                  {categories.filter(c => c.active !== false).map(c => (
-                    <option key={c.id} value={c.key}>{c.icon} {c.label}</option>
-                  ))}
-                </select>
-                <input className="input flex-1" value={newDesc} onChange={e => setNewDesc(e.target.value)}
-                  placeholder="e.g. Portable Flue Gas Analyser"
-                  onKeyDown={e => e.key === 'Enter' && addDesc()} />
-                <button onClick={addDesc} disabled={saving} className="btn-primary text-sm">Add</button>
+
+              {/* Descriptions section */}
+              <div className="card overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+                  <h2 className="font-semibold text-gray-700 text-sm">Descriptions</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Standard instrument descriptions — used as dropdowns when adding an instrument for a customer</p>
+                </div>
+                <div className="px-5 py-3 border-b border-gray-100 flex gap-2">
+                  <select className="input w-44" value={newDescCat} onChange={e => setNewDescCat(e.target.value)}>
+                    <option value="">— Category (optional) —</option>
+                    {categories.filter(c => c.active !== false).map(c => (
+                      <option key={c.id} value={c.key}>{c.icon} {c.label}</option>
+                    ))}
+                  </select>
+                  <input className="input flex-1" value={newDesc} onChange={e => setNewDesc(e.target.value)}
+                    placeholder="e.g. Portable Flue Gas Analyser"
+                    onKeyDown={e => e.key === 'Enter' && addDesc()} />
+                  <button onClick={addDesc} disabled={saving} className="btn-primary text-sm">Add</button>
+                </div>
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-gray-50">
+                    {descriptions.map(d => (
+                      <tr key={d.id} className={`hover:bg-gray-50 ${d.active === false ? 'opacity-50' : ''}`}>
+                        <td className="px-5 py-2.5 text-xs text-gray-400 w-44">
+                          {categories.find(c => c.key === d.category)
+                            ? `${categories.find(c => c.key === d.category).icon} ${categories.find(c => c.key === d.category).label}`
+                            : <span className="text-gray-300">All</span>}
+                        </td>
+                        <td className="px-5 py-2.5 font-medium text-gray-800">{d.description}</td>
+                        <td className="px-5 py-2.5 text-right space-x-3">
+                          <button onClick={() => toggleDesc(d)} className="text-xs text-amber-500 hover:underline">{d.active === false ? 'Enable' : 'Disable'}</button>
+                          <button onClick={() => deleteDesc(d.id)} className="text-xs text-red-400 hover:underline">Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {descriptions.length === 0 && <tr><td colSpan={3} className="px-5 py-6 text-center text-gray-400 text-xs">No descriptions yet</td></tr>}
+                  </tbody>
+                </table>
               </div>
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-gray-50">
-                  {descriptions.map(d => (
-                    <tr key={d.id} className={`hover:bg-gray-50 ${d.active === false ? 'opacity-50' : ''}`}>
-                      <td className="px-5 py-2.5 text-xs text-gray-400 w-44">
-                        {categories.find(c => c.key === d.category)
-                          ? `${categories.find(c => c.key === d.category).icon} ${categories.find(c => c.key === d.category).label}`
-                          : <span className="text-gray-300">All</span>}
-                      </td>
-                      <td className="px-5 py-2.5 font-medium text-gray-800">{d.description}</td>
-                      <td className="px-5 py-2.5 text-right space-x-3">
-                        <button onClick={() => toggleDesc(d)} className="text-xs text-amber-500 hover:underline">{d.active === false ? 'Enable' : 'Disable'}</button>
-                        <button onClick={() => deleteDesc(d.id)} className="text-xs text-red-400 hover:underline">Delete</button>
-                      </td>
-                    </tr>
-                  ))}
-                  {descriptions.length === 0 && <tr><td colSpan={3} className="px-5 py-6 text-center text-gray-400 text-xs">No descriptions yet</td></tr>}
-                </tbody>
-              </table>
+
             </div>
           )}
         </>
