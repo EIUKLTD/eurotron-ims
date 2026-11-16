@@ -106,6 +106,23 @@ export default function TemplatesPage() {
     setTempPoints(p=>{ const u=[...p]; u[i]={...u[i],[key]:val}; return u })
   }
 
+  async function duplicateTemplate(t: any) {
+    const { error } = await supabase.from('cal_templates').insert({
+      name: `Copy of ${t.name}`,
+      description: t.description || '',
+      test_method: t.test_method || '',
+      parameters: t.parameters || [],
+      pressure_points: t.pressure_points || [],
+      temp_points: t.temp_points || [],
+      active: true,
+    })
+    if (error) { alert(error.message); return }
+    await load()
+    // Find the new copy and open it for editing
+    const { data } = await supabase.from('cal_templates').select('*').eq('name', `Copy of ${t.name}`).order('created_at', { ascending: false }).limit(1).single()
+    if (data) startEdit(data)
+  }
+
   async function save() {
     if (!name) return alert('Template name is required.')
     if (!params.length && !pressurePoints.length && !tempPoints.length)
@@ -377,6 +394,7 @@ export default function TemplatesPage() {
                 </div>
                 <div className="flex gap-3 shrink-0 ml-4">
                   <button onClick={()=>startEdit(t)} className="text-xs text-brand-500 hover:underline">Edit</button>
+                  <button onClick={()=>duplicateTemplate(t)} className="text-xs text-green-500 hover:underline">Duplicate</button>
                   <button onClick={()=>deleteTemplate(t.id)} className="text-xs text-red-400 hover:underline">Delete</button>
                 </div>
               </div>
