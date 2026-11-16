@@ -18,7 +18,8 @@ const navItems = [
 
 const adminItems = [
   { href: '/dashboard/admin/users',      label: 'Users',          icon: '◎' },
-  { href: '/dashboard/admin/standards',  label: 'Ref. Standards', icon: '✓' },
+  { href: '/dashboard/admin/standards',      label: 'Ref. Standards', icon: '✓' },
+  { href: '/dashboard/admin/standard-lists', label: 'Std. Lists',     icon: '📋' },
   { href: '/dashboard/admin/parts',      label: 'Parts Library',  icon: '⊞' },
   { href: '/dashboard/admin/templates',  label: 'Cal Templates',  icon: '☰' },
   { href: '/dashboard/admin/makes',  label: 'Makes',        icon: '🏷' },
